@@ -9,12 +9,17 @@ import {
   TextInput,
   Alert,
   Modal,
+  Dimensions,
 } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Colors, Typography, Spacing, Radius, Shadows } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useAuth } from '@/context/AuthContext';
 import { useBatchController, formatTime } from '@/hooks/use-batch-controller';
+import { useESP32Connection } from '@/hooks/use-esp32-connection';
+import { AnimatedCounter } from '@/components/AnimatedCounter';
+import { SwipeToStop } from '@/components/SwipeToStop';
+import { Sparkline } from '@/components/Sparkline';
 
 // ─── Progress Ring Component ──────────────────────────────────────────────
 function ProgressRing({
@@ -89,7 +94,7 @@ function CounterCard({
       style={[styles.counterCard, { backgroundColor: theme.surface }, Shadows.sm]}
     >
       <Text style={styles.counterEmoji}>{emoji}</Text>
-      <Text style={[styles.counterNumber, { color }]}>{count}</Text>
+      <AnimatedCounter value={count} color={color} style={styles.counterNumber} />
       <Text style={[styles.counterLabel, { color: theme.textSecondary }]}>{label}</Text>
     </Animated.View>
   );
@@ -111,11 +116,28 @@ export default function DashboardScreen() {
     pauseBatch,
     resumeBatch,
     stopBatch,
+    incrementBean,
   } = useBatchController();
+
+  const { isConnected, sendCommand } = useESP32Connection(activeBatch?.id, incrementBean);
 
   const [showNewSession, setShowNewSession] = useState(false);
   const [harvestDate, setHarvestDate] = useState(new Date().toISOString().split('T')[0]);
   const [targetCount, setTargetCount] = useState('100');
+  const [sparklineData, setSparklineData] = useState<number[]>([0]);
+
+  // Update sparkline data periodically
+  React.useEffect(() => {
+    if (activeBatch?.status === 'active') {
+      const interval = setInterval(() => {
+        setSparklineData((prev) => {
+          const newData = [...prev, throughput];
+          return newData.length > 20 ? newData.slice(newData.length - 20) : newData;
+        });
+      }, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [activeBatch?.status, throughput]);
 
   const displayName = user?.user_metadata?.full_name || 'Farmer';
 
@@ -129,22 +151,24 @@ export default function DashboardScreen() {
       return;
     }
     await createBatch(harvestDate, parseInt(targetCount));
+    sendCommand('START');
+    setSparklineData([0]);
     setShowNewSession(false);
   }
 
+  function handlePause() {
+    pauseBatch();
+    sendCommand('PAUSE');
+  }
+
+  function handleResume() {
+    resumeBatch();
+    sendCommand('START');
+  }
+
   function handleStopSession() {
-    Alert.alert(
-      'End Session',
-      `Are you sure you want to end this sorting session?\n\nTotal beans sorted: ${totalBeans}`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'End Session',
-          style: 'destructive',
-          onPress: stopBatch,
-        },
-      ]
-    );
+    stopBatch();
+    sendCommand('STOP');
   }
 
   // ─── Active Session View ──────────────────────────────────────────────
@@ -162,13 +186,16 @@ export default function DashboardScreen() {
                 ⏱ {formatTime(elapsedSeconds)}
               </Text>
             </View>
-            <View style={[styles.throughputBadge, { backgroundColor: theme.surface }]}>
-              <Text style={[styles.throughputValue, { color: theme.accent }]}>
-                {throughput}
-              </Text>
-              <Text style={[styles.throughputUnit, { color: theme.textSecondary }]}>
-                beans/min
-              </Text>
+            <View style={{ alignItems: 'flex-end' }}>
+              <Sparkline data={sparklineData} width={80} height={20} color={theme.accent} strokeWidth={1.5} />
+              <View style={[styles.throughputBadge, { backgroundColor: theme.surface, marginTop: 4 }]}>
+                <Text style={[styles.throughputValue, { color: theme.accent }]}>
+                  {throughput}
+                </Text>
+                <Text style={[styles.throughputUnit, { color: theme.textSecondary }]}>
+                  beans/min
+                </Text>
+              </View>
             </View>
           </View>
 
@@ -241,35 +268,33 @@ export default function DashboardScreen() {
           </View>
 
           {/* Control Buttons — large, intentional */}
-          <View style={styles.controlSection}>
-            {activeBatch.status === 'active' ? (
-              <TouchableOpacity
-                style={[styles.controlButton, styles.pauseButton]}
-                onPress={pauseBatch}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.controlIcon}>⏸</Text>
-                <Text style={styles.controlButtonText}>Pause</Text>
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity
-                style={[styles.controlButton, styles.resumeButton]}
-                onPress={resumeBatch}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.controlIcon}>▶️</Text>
-                <Text style={styles.controlButtonText}>Resume</Text>
-              </TouchableOpacity>
-            )}
+          <View style={{ marginTop: Spacing.xl, alignItems: 'center' }}>
+            <View style={{ flexDirection: 'row', width: '100%', marginBottom: Spacing.lg }}>
+              {activeBatch.status === 'active' ? (
+                <TouchableOpacity
+                  style={[styles.controlButton, styles.pauseButton]}
+                  onPress={handlePause}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.controlIcon}>⏸</Text>
+                  <Text style={styles.controlButtonText}>Pause Conveyor</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={[styles.controlButton, styles.resumeButton]}
+                  onPress={handleResume}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.controlIcon}>▶️</Text>
+                  <Text style={styles.controlButtonText}>Resume Sorting</Text>
+                </TouchableOpacity>
+              )}
+            </View>
 
-            <TouchableOpacity
-              style={[styles.controlButton, styles.stopButton]}
-              onPress={handleStopSession}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.controlIcon}>⏹</Text>
-              <Text style={styles.controlButtonTextStop}>End Session</Text>
-            </TouchableOpacity>
+            <SwipeToStop 
+              onStop={handleStopSession} 
+              width={Dimensions.get('window').width - Spacing.md * 2} 
+            />
           </View>
         </ScrollView>
       </SafeAreaView>
@@ -287,19 +312,23 @@ export default function DashboardScreen() {
             <Text style={[styles.userName, { color: theme.text }]}>{displayName} 👋</Text>
           </View>
           <View style={styles.connectionStatus}>
-            <View style={[styles.statusDot, { backgroundColor: theme.danger }]} />
-            <Text style={[styles.statusText, { color: theme.textSecondary }]}>Offline</Text>
+            <View style={[styles.statusDot, { backgroundColor: isConnected ? theme.success : theme.danger }]} />
+            <Text style={[styles.statusText, { color: theme.textSecondary }]}>
+              {isConnected ? 'Connected' : 'Offline'}
+            </Text>
           </View>
         </View>
 
         {/* Machine Status Card */}
         <View style={[styles.machineCard, { backgroundColor: theme.surface }, Shadows.md]}>
           <Text style={[styles.cardTitle, { color: theme.text }]}>Machine Status</Text>
-          <View style={[styles.statusIndicator, { backgroundColor: theme.dangerBg }]}>
-            <Text style={[styles.statusBadgeText, { color: theme.danger }]}>Not Connected</Text>
+          <View style={[styles.statusIndicator, { backgroundColor: isConnected ? theme.successBg : theme.dangerBg }]}>
+            <Text style={[styles.statusBadgeText, { color: isConnected ? theme.success : theme.danger }]}>
+              {isConnected ? 'ESP32 Online & Ready' : 'Not Connected'}
+            </Text>
           </View>
           <Text style={[styles.cardHint, { color: theme.textSecondary }]}>
-            Connect to the ESP32 to start sorting
+            {isConnected ? 'Hardware linked. You can start a batch.' : 'Connect to the ESP32 to start sorting.'}
           </Text>
         </View>
 
@@ -484,7 +513,6 @@ const styles = StyleSheet.create({
   harvestLabel: { fontSize: Typography.fontSize.sm, fontFamily: Typography.fontFamily.regular, marginTop: Spacing.sm },
 
   // Controls
-  controlSection: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.md },
   controlButton: {
     flex: 1,
     height: 64,

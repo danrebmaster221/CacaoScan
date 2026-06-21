@@ -27,6 +27,7 @@ import {
   ActivityIndicator,
   Image,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { Colors, Typography, Spacing, Radius } from '@/constants/theme';
@@ -39,13 +40,14 @@ import {
 } from '@/utils/security';
 
 export default function LoginScreen() {
-  const { signIn } = useAuth();
+  const { signIn, signInWithGoogle } = useAuth();
   const router = useRouter();
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -203,6 +205,7 @@ export default function LoginScreen() {
 
           <View style={styles.inputGroup}>
             <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>Password</Text>
+          <View style={{ position: 'relative', justifyContent: 'center' }}>
             <TextInput
               style={[
                 styles.input,
@@ -210,16 +213,24 @@ export default function LoginScreen() {
                   backgroundColor: theme.surface,
                   color: theme.text,
                   borderColor: theme.border,
+                  paddingRight: 48,
                 },
               ]}
               placeholder="Enter your password"
               placeholderTextColor={theme.disabled}
               value={password}
               onChangeText={(val) => { setPassword(val); setError(null); }}
-              secureTextEntry
+              secureTextEntry={!showPassword}
               autoComplete="password"
               editable={!isLocked}
             />
+            <TouchableOpacity
+              style={{ position: 'absolute', right: 16, height: 52, justifyContent: 'center' }}
+              onPress={() => setShowPassword(!showPassword)}
+            >
+              <Ionicons name={showPassword ? 'eye-off' : 'eye'} size={20} color={theme.textSecondary} />
+            </TouchableOpacity>
+          </View>
           </View>
 
           {/* Forgot Password — Control #12 */}
@@ -264,6 +275,29 @@ export default function LoginScreen() {
             <Text style={[styles.registerLink, { color: theme.accent }]}>
               Create Account
             </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Google OAuth Section */}
+        <View style={{ marginTop: Spacing.xl, alignItems: 'center' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: Spacing.md, width: '100%' }}>
+            <View style={{ flex: 1, height: 1, backgroundColor: theme.border }} />
+            <Text style={{ marginHorizontal: Spacing.md, color: theme.textSecondary, fontSize: Typography.fontSize.sm, fontFamily: Typography.fontFamily.medium }}>
+              OR SIGN IN WITH
+            </Text>
+            <View style={{ flex: 1, height: 1, backgroundColor: theme.border }} />
+          </View>
+
+          <TouchableOpacity
+            style={[styles.oauthButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+            onPress={signInWithGoogle}
+            activeOpacity={0.8}
+          >
+            <Image 
+              source={{ uri: 'https://img.icons8.com/color/48/000000/google-logo.png' }}
+              style={{ width: 26, height: 26 }}
+              resizeMode="contain"
+            />
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -388,5 +422,18 @@ const styles = StyleSheet.create({
   registerLink: {
     fontSize: Typography.fontSize.sm,
     fontFamily: Typography.fontFamily.semiBold,
+  },
+  oauthButton: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+    elevation: 2,
   },
 });

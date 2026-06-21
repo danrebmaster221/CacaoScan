@@ -215,6 +215,18 @@ export function useBatchController() {
     }
   }, [activeBatch, elapsedSeconds]);
 
+  // Optimistic UI update from WebSocket to instantly reflect on screen
+  const incrementBean = useCallback((variety: string, quality: string) => {
+    setActiveBatch((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        [`${variety}_count`]: prev[`${variety}_count` as keyof Batch] as number + 1,
+        [`${quality}_count`]: prev[`${quality}_count` as keyof Batch] as number + 1,
+      };
+    });
+  }, []);
+
   // Computed values
   const totalBeans = activeBatch
     ? activeBatch.criollo_count + activeBatch.forastero_count + activeBatch.trinitario_count
@@ -240,6 +252,7 @@ export function useBatchController() {
     pauseBatch,
     resumeBatch,
     stopBatch,
+    incrementBean,
   };
 }
 

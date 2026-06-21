@@ -6,7 +6,8 @@
 -- ============================================
 CREATE TABLE IF NOT EXISTS profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  full_name TEXT NOT NULL DEFAULT '',
+  first_name TEXT NOT NULL DEFAULT '',
+  last_name TEXT NOT NULL DEFAULT '',
   farm_location TEXT NOT NULL DEFAULT '',
   role TEXT NOT NULL DEFAULT 'farmer' CHECK (role IN ('farmer', 'admin')),
   contact_number TEXT DEFAULT '',
@@ -34,10 +35,11 @@ CREATE POLICY "Users can insert own profile"
 CREATE OR REPLACE FUNCTION handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-  INSERT INTO public.profiles (id, full_name, farm_location, role)
+  INSERT INTO public.profiles (id, first_name, last_name, farm_location, role)
   VALUES (
     NEW.id,
-    COALESCE(NEW.raw_user_meta_data->>'full_name', ''),
+    COALESCE(NEW.raw_user_meta_data->>'first_name', ''),
+    COALESCE(NEW.raw_user_meta_data->>'last_name', ''),
     COALESCE(NEW.raw_user_meta_data->>'farm_location', ''),
     'farmer'
   );

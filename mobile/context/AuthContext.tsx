@@ -43,9 +43,12 @@ interface AuthContextType {
   pendingMFAEmail: string | null;
   signIn: (email: string, password: string) => Promise<{ error: string | null; requiresMFA?: boolean }>;
   verifyOTP: (email: string, token: string) => Promise<{ error: string | null }>;
-  signUp: (email: string, password: string, fullName: string, farmLocation: string) => Promise<{ error: string | null }>;
+  verifySignupOTP: (email: string, token: string) => Promise<{ error: string | null }>;
+  resendOTP: (email: string) => Promise<{ error: string | null }>;
+  signUp: (email: string, password: string, firstName: string, lastName: string, farmLocation: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   requestPasswordReset: (email: string) => Promise<{ error: string | null }>;
+  signInWithGoogle: () => Promise<{ error: string | null }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -270,42 +273,92 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   /**
+   * Verify Signup 6-Digit OTP
+   */
+  const verifySignupOTP = useCallback(async (email: string, token: string): Promise<{ error: string | null }> => {
+    try {
+      const { error } = await supabase.auth.verifyOtp({
+        email,
+        token,
+        type: 'signup',
+      });
+
+      if (error) {
+        return { error: 'Invalid or expired 6-digit code. Please try again.' };
+      }
+
+      return { error: null };
+    } catch (e) {
+      return { error: 'Verification failed. Please try again.' };
+    }
+  }, []);
+
+  /**
+   * Resend Signup OTP
+   */
+  const resendOTP = useCallback(async (email: string): Promise<{ error: string | null }> => {
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email,
+      });
+
+      if (error) {
+        return { error: 'Failed to resend code. Please try again soon.' };
+      }
+
+      return { error: null };
+    } catch (e) {
+      return { error: 'Failed to resend code. Please try again.' };
+    }
+  }, []);
+
+  /**
    * Sign Up with strong password validation
    */
   const signUp = useCallback(async (
     email: string,
     password: string,
-    fullName: string,
+    firstName: string,
+    lastName: string,
     farmLocation: string,
   ): Promise<{ error: string | null }> => {
     try {
-      const { data, error } = await supabase.auth.signUp({
+      const { error } = await supabase.auth.signUp({
         email,
         password,
         options: {
           data: {
-            full_name: fullName,
+            first_name: firstName,
+            last_name: lastName,
             farm_location: farmLocation,
           },
         },
       });
 
       if (error) return { error: error.message };
-
-      // Create profile entry
-      if (data.user) {
-        await supabase.from('profiles').upsert({
-          id: data.user.id,
-          full_name: fullName,
-          farm_location: farmLocation,
-          role: 'farmer',
-          updated_at: new Date().toISOString(),
-        });
-      }
-
       return { error: null };
+
     } catch (e) {
       return { error: 'Registration failed. Please try again.' };
+    }
+  }, []);
+
+  /**
+   * Google OAuth Sign-In
+   */
+  const signInWithGoogle = useCallback(async (): Promise<{ error: string | null }> => {
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: 'cacaoscan://oauth-callback',
+        },
+      });
+      if (error) return { error: error.message };
+      return { error: null };
+    } catch (e) {
+      return { error: 'Google Sign-In failed. Please try again.' };
     }
   }, []);
 
@@ -347,9 +400,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         pendingMFAEmail,
         signIn,
         verifyOTP,
+        verifySignupOTP,
+        resendOTP,
         signUp,
         signOut,
         requestPasswordReset,
+        signInWithGoogle,
       }}
     >
       {children}
