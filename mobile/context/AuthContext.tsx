@@ -191,44 +191,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return { error: `${GENERIC_AUTH_ERROR}. ${remaining} attempt${remaining !== 1 ? 's' : ''} remaining.` };
       }
 
-      // Password auth succeeded — now send OTP for MFA
-      // First sign out the password session (we'll complete auth after OTP)
-      await supabase.auth.signOut();
+      // Password auth succeeded
+      await resetFailedAttempts();
 
-      // Control #4: Send OTP via email
-      const { error: otpError } = await supabase.auth.signInWithOtp({
-        email,
-        options: {
-          shouldCreateUser: false,
-        },
-      });
+      // Control #20: Check suspicious login
+      const suspicious = await checkSuspiciousLogin(email);
+      await logAuditEvent(email, 'success', suspicious.isSuspicious, suspicious.reason);
 
-      if (otpError) {
-        // Fallback: if OTP sending fails, complete login without MFA
-        // Re-authenticate
-        await supabase.auth.signInWithPassword({ email, password });
-        await resetFailedAttempts();
-
-        // Control #20: Check suspicious login
-        const suspicious = await checkSuspiciousLogin(email);
-        await logAuditEvent(email, 'success', suspicious.isSuspicious, suspicious.reason);
-
-        if (suspicious.isSuspicious) {
-          Alert.alert(
-            '⚠️ Security Alert',
-            `New device detected for this account. If this wasn't you, please change your password immediately.`,
-          );
-        }
-
-        return { error: null, requiresMFA: false };
+      if (suspicious.isSuspicious) {
+        Alert.alert(
+          '⚠️ Security Alert',
+          `New device detected for this account. If this wasn't you, please change your password immediately.`
+        );
       }
 
-      // OTP sent successfully — set pending MFA state
-      await logAuditEvent(email, 'otp_sent');
-      setPendingMFA(true);
-      setPendingMFAEmail(email);
-
-      return { error: null, requiresMFA: true };
+      return { error: null, requiresMFA: false };
     } catch (e) {
       return { error: GENERIC_AUTH_ERROR };
     }

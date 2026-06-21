@@ -11,6 +11,15 @@ const ESP32_WS_URL = 'ws://127.0.0.1:8080';
 
 export type MachineState = 'STOPPED' | 'RUNNING' | 'PAUSED';
 
+export interface ClassResult {
+  id: string;
+  variety: string;
+  varietyConfidence: number;
+  quality: string;
+  qualityConfidence: number;
+  timestamp: string;
+}
+
 export interface HardwareHealth {
   connected: boolean;
   pingMs: number;
@@ -23,6 +32,8 @@ export function useESP32Connection(
   const [isConnected, setIsConnected] = useState(false);
   const [machineState, setMachineState] = useState<MachineState>('STOPPED');
   const [ping] = useState(0);
+  const [currentClassification, setCurrentClassification] = useState<ClassResult | null>(null);
+  const [recentClassifications, setRecentClassifications] = useState<ClassResult[]>([]);
   
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
@@ -44,7 +55,18 @@ export function useESP32Connection(
             setMachineState(message.state);
           } else if (message.type === 'BEAN_DETECTED') {
             const { variety, variety_confidence, quality, quality_confidence } = message.data;
-            console.log('Bean Detected:', { variety, quality });
+            
+            const newResult: ClassResult = {
+              id: Date.now().toString() + Math.random().toString(36).substring(7),
+              variety,
+              varietyConfidence: variety_confidence / 100,
+              quality,
+              qualityConfidence: quality_confidence / 100,
+              timestamp: message.timestamp,
+            };
+
+            setCurrentClassification(newResult);
+            setRecentClassifications((prev) => [newResult, ...prev].slice(0, 15));
             
             // Instantly update UI without waiting for database
             if (incrementBean) {
@@ -118,5 +140,7 @@ export function useESP32Connection(
       pingMs: ping,
     },
     sendCommand,
+    currentClassification,
+    recentClassifications,
   };
 }

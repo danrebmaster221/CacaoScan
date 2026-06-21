@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -9,16 +9,11 @@ import {
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Colors, Typography, Spacing, Radius, Shadows } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useESP32Connection, ClassResult } from '@/hooks/use-esp32-connection';
+import { useBatchController } from '@/hooks/use-batch-controller';
 
 // ─── Classification Result Card ───────────────────────────────────────────
-interface ClassResult {
-  id: string;
-  variety: string;
-  varietyConfidence: number;
-  quality: string;
-  qualityConfidence: number;
-  timestamp: string;
-}
+// Interface imported from use-esp32-connection
 
 function ConfidenceBar({ value, color }: { value: number; color: string }) {
   return (
@@ -74,11 +69,13 @@ function RecentClassificationItem({
 export default function VisionScreen() {
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
-  const [isConnected] = useState(false);
-
-  // Placeholder data for UI demo — useState preserves union type for TS
-  const [currentClassification] = useState<ClassResult | null>(null);
-  const [recentClassifications] = useState<ClassResult[]>([]);
+  
+  const { activeBatch } = useBatchController();
+  const { 
+    isConnected, 
+    currentClassification, 
+    recentClassifications 
+  } = useESP32Connection(activeBatch?.id);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>

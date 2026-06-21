@@ -10,9 +10,23 @@ import {
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Colors, Typography, Spacing, Radius, Shadows } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { useBatchHistory } from '@/hooks/use-batch-history';
+import { useHistoryAnalytics } from '@/hooks/use-history-analytics';
 import type { Batch } from '@/hooks/use-batch-controller';
 import { formatTime } from '@/hooks/use-batch-controller';
+
+// ─── Horizontal Bar Chart ────────────────────────────────────────────────
+function HorizontalBar({ label, value, max, color, theme }: { label: string, value: number, max: number, color: string, theme: typeof Colors.light }) {
+  const percentage = max > 0 ? (value / max) * 100 : 0;
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: Spacing.xs }}>
+      <Text style={{ width: 70, fontSize: Typography.fontSize.xs, color: theme.textSecondary, fontFamily: Typography.fontFamily.medium }}>{label}</Text>
+      <View style={{ flex: 1, height: 6, backgroundColor: theme.border, borderRadius: 3, marginHorizontal: Spacing.sm, overflow: 'hidden' }}>
+        <View style={{ width: `${percentage}%`, height: '100%', backgroundColor: color, borderRadius: 3 }} />
+      </View>
+      <Text style={{ width: 30, fontSize: Typography.fontSize.xs, color: theme.text, textAlign: 'right', fontFamily: Typography.fontFamily.bold }}>{value}</Text>
+    </View>
+  );
+}
 
 // ─── Batch Card ──────────────────────────────────────────────────────────
 function BatchCard({ batch, theme }: { batch: Batch; theme: typeof Colors.light }) {
@@ -46,19 +60,22 @@ function BatchCard({ batch, theme }: { batch: Batch; theme: typeof Colors.light 
         </View>
       </View>
 
-      {/* Variety Row */}
-      <View style={styles.statsRow}>
-        <View style={styles.statItem}>
-          <Text style={[styles.statItemValue, { color: '#8D6E63' }]}>{batch.criollo_count}</Text>
-          <Text style={[styles.statItemLabel, { color: theme.textSecondary }]}>Criollo</Text>
+      {/* Bar Charts Row */}
+      <View style={{ flexDirection: 'row', gap: Spacing.xl, marginBottom: Spacing.md }}>
+        {/* Varieties */}
+        <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: Typography.fontSize.xs, fontFamily: Typography.fontFamily.bold, color: theme.text, marginBottom: Spacing.sm }}>Variety Distribution</Text>
+            <HorizontalBar label="Criollo" value={batch.criollo_count} max={total} color="#8D6E63" theme={theme} />
+            <HorizontalBar label="Forastero" value={batch.forastero_count} max={total} color="#5D4037" theme={theme} />
+            <HorizontalBar label="Trinitario" value={batch.trinitario_count} max={total} color={theme.accent} theme={theme} />
         </View>
-        <View style={styles.statItem}>
-          <Text style={[styles.statItemValue, { color: '#5D4037' }]}>{batch.forastero_count}</Text>
-          <Text style={[styles.statItemLabel, { color: theme.textSecondary }]}>Forastero</Text>
-        </View>
-        <View style={styles.statItem}>
-          <Text style={[styles.statItemValue, { color: theme.accent }]}>{batch.trinitario_count}</Text>
-          <Text style={[styles.statItemLabel, { color: theme.textSecondary }]}>Trinitario</Text>
+        
+        {/* Quality */}
+        <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: Typography.fontSize.xs, fontFamily: Typography.fontFamily.bold, color: theme.text, marginBottom: Spacing.sm }}>Quality Grading</Text>
+            <HorizontalBar label="Export" value={batch.export_grade_count} max={total} color={theme.success} theme={theme} />
+            <HorizontalBar label="Drying" value={batch.needs_drying_count} max={total} color={theme.warning} theme={theme} />
+            <HorizontalBar label="Rejected" value={batch.rejected_count} max={total} color={theme.danger} theme={theme} />
         </View>
       </View>
 
@@ -82,7 +99,7 @@ function BatchCard({ batch, theme }: { batch: Batch; theme: typeof Colors.light 
 export default function HistoryScreen() {
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
-  const { batches, stats, isLoading, refresh } = useBatchHistory();
+  const { batches, totalBatches, totalBeansSorted, globalExportRate, isLoading, refresh } = useHistoryAnalytics();
 
   const renderItem = useCallback(
     ({ item }: { item: Batch }) => <BatchCard batch={item} theme={theme} />,
@@ -102,15 +119,15 @@ export default function HistoryScreen() {
       {/* Summary Cards */}
       <View style={styles.summaryRow}>
         <View style={[styles.summaryCard, { backgroundColor: theme.surface }, Shadows.sm]}>
-          <Text style={[styles.summaryNumber, { color: theme.primary }]}>{stats.totalBatches}</Text>
+          <Text style={[styles.summaryNumber, { color: theme.primary }]}>{totalBatches}</Text>
           <Text style={[styles.summaryLabel, { color: theme.textSecondary }]}>Total{'\n'}Batches</Text>
         </View>
         <View style={[styles.summaryCard, { backgroundColor: theme.surface }, Shadows.sm]}>
-          <Text style={[styles.summaryNumber, { color: theme.success }]}>{stats.totalBeans}</Text>
+          <Text style={[styles.summaryNumber, { color: theme.success }]}>{totalBeansSorted}</Text>
           <Text style={[styles.summaryLabel, { color: theme.textSecondary }]}>Beans{'\n'}Sorted</Text>
         </View>
         <View style={[styles.summaryCard, { backgroundColor: theme.surface }, Shadows.sm]}>
-          <Text style={[styles.summaryNumber, { color: theme.accent }]}>{stats.exportRate}%</Text>
+          <Text style={[styles.summaryNumber, { color: theme.accent }]}>{Math.round(globalExportRate)}%</Text>
           <Text style={[styles.summaryLabel, { color: theme.textSecondary }]}>Export{'\n'}Rate</Text>
         </View>
       </View>
