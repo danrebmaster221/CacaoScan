@@ -313,8 +313,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing['2xl'],
   },
-  brandSection: { alignItems: 'center', marginBottom: Spacing.lg },
-  logoImage: { width: 320, height: 120, marginBottom: Spacing.md },
+  brandSection: { alignItems: 'center', marginTop: -60, marginBottom: -40 },
+  logoImage: { width: 400, height: 280 },
 
   // Security Indicator
   securityIndicator: {

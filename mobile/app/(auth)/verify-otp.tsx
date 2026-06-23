@@ -117,7 +117,7 @@ export default function VerifyOTPScreen() {
     Alert.alert(
       'Resend Code',
       'Please sign in again to receive a new verification code.',
-      [{ text: 'OK', onPress: () => router.back() }],
+      [{ text: 'OK', onPress: () => router.replace('/(auth)/login' as any) }],
     );
   }
 
@@ -130,7 +130,7 @@ export default function VerifyOTPScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={styles.content}>
         {/* Header */}
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+        <TouchableOpacity onPress={() => router.replace('/(auth)/login' as any)} style={styles.backButton}>
           <Text style={[styles.backText, { color: theme.accent }]}>← Back</Text>
         </TouchableOpacity>
 
