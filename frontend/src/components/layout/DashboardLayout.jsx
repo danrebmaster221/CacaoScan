@@ -72,7 +72,7 @@ export default function DashboardLayout() {
               {/* Collapse Toggle Icon */}
               <button 
                 onClick={() => setIsCollapsed(!isCollapsed)} 
-                className="group flex items-center justify-center p-2 rounded-[14px] bg-[#4E342E] text-white hover:bg-[#5C3D2E] focus:outline-none shadow-md transition-all"
+                className="group flex items-center justify-center p-2 rounded-[14px] bg-[#4E342E] text-white hover:bg-[#5C3D2E] hover:cursor-pointer focus:outline-none shadow-md transition-all"
                 title={isCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
               >
                 <svg 
@@ -136,7 +136,7 @@ export default function DashboardLayout() {
             {/* Logout Button */}
             <button
               onClick={() => setShowLogoutModal(true)}
-              className={`p-4 group flex items-center justify-center text-red-500 hover:bg-[#3E2723] hover:text-red-400 transition-colors w-full focus:outline-none`}
+              className={`p-4 group flex items-center justify-center text-red-500 hover:bg-[#3E2723] hover:text-red-400 hover:cursor-pointer transition-colors w-full focus:outline-none`}
               title={isCollapsed ? "Logout" : undefined}
             >
               <LogOut className={`h-5 w-5 ${isCollapsed ? '' : 'mr-3'}`} />
@@ -198,7 +198,7 @@ export default function DashboardLayout() {
               <div className="border-t border-[#5C3D2E] mt-4 pt-4">
                  <button
                    onClick={() => { setIsMobileMenuOpen(false); setShowLogoutModal(true); }}
-                   className="w-full flex items-center justify-center px-4 py-3 rounded-md text-base font-medium text-red-500 hover:bg-[#4E342E]"
+                   className="w-full flex items-center justify-center px-4 py-3 rounded-md text-base font-medium text-red-500 hover:bg-[#4E342E] hover:cursor-pointer"
                  >
                    <LogOut className="mr-4 h-5 w-5" />
                    Logout

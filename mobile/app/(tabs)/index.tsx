@@ -10,7 +10,10 @@ import {
   Alert,
   Modal,
   Dimensions,
+  Switch,
+  Platform,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Colors, Typography, Spacing, Radius, Shadows } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -27,11 +30,13 @@ function ProgressRing({
   size = 120,
   strokeWidth = 10,
   theme,
+  isContinuous = false,
 }: {
   progress: number;
   size?: number;
   strokeWidth?: number;
   theme: typeof Colors.light;
+  isContinuous?: boolean;
 }) {
   return (
     <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
@@ -65,10 +70,12 @@ function ProgressRing({
       />
       {/* Center content */}
       <View style={{ alignItems: 'center' }}>
-        <Text style={[styles.progressPercent, { color: theme.text }]}>
-          {Math.round(progress * 100)}%
+        <Text style={[styles.progressPercent, { color: theme.text, fontSize: isContinuous ? 32 : Typography.fontSize.xl }]}>
+          {isContinuous ? '∞' : `${Math.round(progress * 100)}%`}
         </Text>
-        <Text style={[styles.progressLabel, { color: theme.textSecondary }]}>Complete</Text>
+        <Text style={[styles.progressLabel, { color: theme.textSecondary }]}>
+          {isContinuous ? 'Auto' : 'Complete'}
+        </Text>
       </View>
     </View>
   );
@@ -119,10 +126,14 @@ export default function DashboardScreen() {
     incrementBean,
   } = useBatchController();
 
-  const { isConnected, sendCommand } = useESP32Connection(activeBatch?.id, incrementBean);
+  const { isConnected, sendCommand, currentClassification } = useESP32Connection(activeBatch?.id, incrementBean);
 
   const [showNewSession, setShowNewSession] = useState(false);
+  const [harvestDateDate, setHarvestDateDate] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const [harvestDate, setHarvestDate] = useState(new Date().toISOString().split('T')[0]);
+  const [batchName, setBatchName] = useState('');
+  const [useManualLimit, setUseManualLimit] = useState(false);
   const [targetCount, setTargetCount] = useState('100');
   const [sparklineData, setSparklineData] = useState<number[]>([0]);
 
@@ -145,12 +156,25 @@ export default function DashboardScreen() {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
 
+  const onDateChange = (event: any, selectedDate?: Date) => {
+    if (Platform.OS === 'android') setShowDatePicker(false);
+    if (selectedDate) {
+      setHarvestDateDate(selectedDate);
+      setHarvestDate(selectedDate.toISOString().split('T')[0]);
+    }
+  };
+
   async function handleStartSession() {
-    if (!targetCount.trim() || parseInt(targetCount) <= 0) {
+    if (!batchName.trim()) {
+      Alert.alert('Invalid Input', 'Please enter a batch name or lot number.');
+      return;
+    }
+    const finalTargetCount = useManualLimit ? parseInt(targetCount) : 0;
+    if (useManualLimit && (isNaN(finalTargetCount) || finalTargetCount <= 0)) {
       Alert.alert('Invalid Input', 'Please enter a valid target bean count.');
       return;
     }
-    await createBatch(harvestDate, parseInt(targetCount));
+    await createBatch(batchName.trim(), harvestDate, finalTargetCount);
     sendCommand('START');
     setSparklineData([0]);
     setShowNewSession(false);
@@ -179,17 +203,17 @@ export default function DashboardScreen() {
           {/* Session Header */}
           <View style={styles.sessionHeader}>
             <View>
-              <Text style={[styles.sessionLabel, { color: theme.textSecondary }]}>
-                Active Session
+              <Text style={[styles.sessionLabel, { color: activeBatch.status === 'paused' ? theme.warning : theme.textSecondary }]}>
+                {activeBatch.status === 'paused' ? 'Session Paused' : 'Active Session'}
               </Text>
-              <Text style={[styles.sessionTimer, { color: theme.text }]}>
+              <Text style={[styles.sessionTimer, { color: activeBatch.status === 'paused' ? theme.warning : theme.text }]}>
                 ⏱ {formatTime(elapsedSeconds)}
               </Text>
             </View>
             <View style={{ alignItems: 'flex-end' }}>
-              <Sparkline data={sparklineData} width={80} height={20} color={theme.accent} strokeWidth={1.5} />
+              <Sparkline data={sparklineData} width={80} height={20} color={activeBatch.status === 'paused' ? theme.warning : theme.accent} strokeWidth={1.5} />
               <View style={[styles.throughputBadge, { backgroundColor: theme.surface, marginTop: 4 }]}>
-                <Text style={[styles.throughputValue, { color: theme.accent }]}>
+                <Text style={[styles.throughputValue, { color: activeBatch.status === 'paused' ? theme.warning : theme.accent }]}>
                   {throughput}
                 </Text>
                 <Text style={[styles.throughputUnit, { color: theme.textSecondary }]}>
@@ -198,20 +222,39 @@ export default function DashboardScreen() {
               </View>
             </View>
           </View>
+          
+          {/* Connection Error Banner */}
+          {!isConnected && activeBatch.status === 'active' && (
+            <Animated.View entering={FadeInDown} style={{ backgroundColor: theme.dangerBg, padding: Spacing.md, borderRadius: Radius.lg, marginBottom: Spacing.lg, flexDirection: 'row', alignItems: 'center', gap: Spacing.md }}>
+              <Text style={{ fontSize: 24 }}>🚨</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: theme.danger, fontFamily: Typography.fontFamily.semiBold, fontSize: Typography.fontSize.sm }}>INTERRUPTED: Machine Offline</Text>
+                <Text style={{ color: theme.danger, opacity: 0.8, fontFamily: Typography.fontFamily.regular, fontSize: Typography.fontSize.xs, marginTop: 2 }}>Please check the ESP32 Wi-Fi connection. The feed has stopped.</Text>
+              </View>
+            </Animated.View>
+          )}
 
           {/* Progress Ring + Target */}
           <View style={[styles.progressSection, { backgroundColor: theme.surface }, Shadows.md]}>
-            <ProgressRing progress={progress} theme={theme} />
+            <ProgressRing progress={progress} theme={theme} isContinuous={activeBatch.target_bean_count === 0} />
             <View style={styles.progressInfo}>
               <Text style={[styles.progressBeans, { color: theme.text }]}>
-                {totalBeans} / {activeBatch.target_bean_count}
+                {totalBeans} {activeBatch.target_bean_count > 0 ? `/ ${activeBatch.target_bean_count}` : ''}
               </Text>
               <Text style={[styles.progressSubtitle, { color: theme.textSecondary }]}>
                 beans sorted
               </Text>
-              <Text style={[styles.harvestLabel, { color: theme.textSecondary }]}>
-                📅 Harvest: {activeBatch.harvest_date}
+              <Text style={[styles.harvestLabel, { color: theme.textSecondary, marginTop: Spacing.xs }]}>
+                🏷️ Batch: {activeBatch.batch_name}
               </Text>
+              {/* Added Last Bean Result here for QA Polish */}
+              <View style={[{ backgroundColor: theme.background, padding: 6, borderRadius: Radius.sm, marginTop: Spacing.sm }]}>
+                <Text style={{ fontSize: Typography.fontSize.xs, color: theme.textSecondary, fontFamily: Typography.fontFamily.medium }}>
+                  Last Result: <Text style={{ color: theme.primary, fontFamily: Typography.fontFamily.bold }}>
+                    {currentClassification ? `${currentClassification.variety.toUpperCase()} (${currentClassification.quality})` : 'Waiting for bean...'}
+                  </Text>
+                </Text>
+              </View>
             </View>
           </View>
 
@@ -261,7 +304,7 @@ export default function DashboardScreen() {
             <CounterCard
               label="Rejected"
               count={activeBatch.rejected_count}
-              color={theme.danger}
+              color={(totalBeans > 0 && activeBatch.rejected_count / totalBeans > 0.15) ? theme.danger : theme.textSecondary}
               theme={theme}
               emoji="❌"
             />
@@ -379,30 +422,76 @@ export default function DashboardScreen() {
 
             <View style={styles.modalField}>
               <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>
-                Harvest Date
+                Batch Name / Lot #
               </Text>
               <TextInput
                 style={[styles.fieldInput, { backgroundColor: theme.surface, color: theme.text, borderColor: theme.border }]}
-                value={harvestDate}
-                onChangeText={setHarvestDate}
-                placeholder="YYYY-MM-DD"
+                value={batchName}
+                onChangeText={setBatchName}
+                placeholder="e.g. Mampang-Farm-Sack-A"
                 placeholderTextColor={theme.disabled}
               />
             </View>
 
             <View style={styles.modalField}>
               <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>
-                Target Bean Count
+                Harvest Date
               </Text>
-              <TextInput
-                style={[styles.fieldInput, { backgroundColor: theme.surface, color: theme.text, borderColor: theme.border }]}
-                value={targetCount}
-                onChangeText={setTargetCount}
-                keyboardType="numeric"
-                placeholder="e.g. 500"
-                placeholderTextColor={theme.disabled}
+              
+              {Platform.OS === 'ios' ? (
+                <View style={{ alignItems: 'flex-start', marginTop: 4 }}>
+                  <DateTimePicker
+                    value={harvestDateDate}
+                    mode="date"
+                    display="default"
+                    onChange={onDateChange}
+                  />
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={[styles.fieldInput, { backgroundColor: theme.surface, justifyContent: 'center', borderColor: theme.border }]}
+                  onPress={() => setShowDatePicker(true)}
+                >
+                  <Text style={{ color: theme.text, fontSize: Typography.fontSize.base, fontFamily: Typography.fontFamily.regular }}>
+                    {harvestDate}
+                  </Text>
+                </TouchableOpacity>
+              )}
+              
+              {Platform.OS === 'android' && showDatePicker && (
+                <DateTimePicker
+                  value={harvestDateDate}
+                  mode="date"
+                  display="default"
+                  onChange={onDateChange}
+                />
+              )}
+            </View>
+
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.sm }}>
+              <Text style={[styles.fieldLabel, { color: theme.textSecondary, marginBottom: 0 }]}>
+                Set Manual Limit (Testing)
+              </Text>
+              <Switch
+                value={useManualLimit}
+                onValueChange={setUseManualLimit}
+                trackColor={{ false: theme.border, true: theme.primary }}
+                thumbColor={theme.surface}
               />
             </View>
+
+            {useManualLimit && (
+              <View style={styles.modalField}>
+                <TextInput
+                  style={[styles.fieldInput, { backgroundColor: theme.surface, color: theme.text, borderColor: theme.border }]}
+                  value={targetCount}
+                  onChangeText={setTargetCount}
+                  keyboardType="numeric"
+                  placeholder="e.g. 100"
+                  placeholderTextColor={theme.disabled}
+                />
+              </View>
+            )}
 
             <View style={styles.modalButtons}>
               <TouchableOpacity

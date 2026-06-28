@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   farm_location TEXT NOT NULL DEFAULT '',
   role TEXT NOT NULL DEFAULT 'farmer' CHECK (role IN ('farmer', 'admin')),
   contact_number TEXT DEFAULT '',
+  linked_machine_id TEXT, -- References machines(machine_id)
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -58,6 +59,7 @@ CREATE OR REPLACE TRIGGER on_auth_user_created
 CREATE TABLE IF NOT EXISTS batches (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  batch_name TEXT NOT NULL,
   harvest_date DATE NOT NULL,
   target_bean_count INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused', 'completed')),
@@ -119,7 +121,12 @@ CREATE TABLE IF NOT EXISTS classifications (
   quality TEXT NOT NULL CHECK (quality IN ('export_grade', 'needs_drying', 'rejected')),
   quality_confidence REAL NOT NULL DEFAULT 0,
 
-  classified_at TIMESTAMPTZ DEFAULT NOW()
+  classified_at TIMESTAMPTZ DEFAULT NOW(),
+
+  -- MLOps Feedback Loop Fields
+  image_url TEXT,
+  is_flagged BOOLEAN DEFAULT FALSE,
+  farmer_correction TEXT
 );
 
 -- Enable RLS
@@ -148,3 +155,17 @@ CREATE POLICY "System can insert classifications"
 
 -- Enable realtime for live classification feed
 ALTER PUBLICATION supabase_realtime ADD TABLE classifications;
+
+-- ============================================
+-- 4. MACHINES TABLE (For Autonomy / Hardware validation)
+-- ============================================
+CREATE TABLE IF NOT EXISTS machines (
+  machine_id TEXT PRIMARY KEY,
+  master_pin TEXT NOT NULL,
+  owner_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  is_online BOOLEAN DEFAULT FALSE,
+  last_heartbeat TIMESTAMPTZ
+);
+
+-- Note: In a live DB environment run:
+-- ALTER TABLE profiles ADD CONSTRAINT fk_profiles_machines FOREIGN KEY (linked_machine_id) REFERENCES machines(machine_id);

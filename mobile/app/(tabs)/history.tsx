@@ -6,13 +6,18 @@ import {
   SafeAreaView,
   FlatList,
   RefreshControl,
+  TouchableOpacity,
+  Alert,
 } from 'react-native';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Colors, Typography, Spacing, Radius, Shadows } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useHistoryAnalytics } from '@/hooks/use-history-analytics';
 import type { Batch } from '@/hooks/use-batch-controller';
 import { formatTime } from '@/hooks/use-batch-controller';
+import { router } from 'expo-router';
 
 // ─── Horizontal Bar Chart ────────────────────────────────────────────────
 function HorizontalBar({ label, value, max, color, theme }: { label: string, value: number, max: number, color: string, theme: typeof Colors.light }) {
@@ -32,65 +37,134 @@ function HorizontalBar({ label, value, max, color, theme }: { label: string, val
 function BatchCard({ batch, theme }: { batch: Batch; theme: typeof Colors.light }) {
   const total = batch.criollo_count + batch.forastero_count + batch.trinitario_count;
   const exportPct = total > 0 ? Math.round((batch.export_grade_count / total) * 100) : 0;
-  const date = batch.completed_at
+  
+  const formattedDate = batch.completed_at
     ? new Date(batch.completed_at).toLocaleDateString('en-US', {
         month: 'short',
         day: 'numeric',
         year: 'numeric',
       })
     : '—';
+    
+  const harvestDateObj = new Date(batch.harvest_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const displayDate = harvestDateObj === formattedDate 
+     ? `Sorted: ${formattedDate}` 
+     : `Harvest: ${harvestDateObj} • Sorted: ${formattedDate}`;
+
+  const badgeBg = total === 0 ? theme.border : exportPct >= 70 ? theme.successBg : exportPct >= 40 ? theme.warningBg : theme.dangerBg;
+  const badgeText = total === 0 ? theme.textSecondary : exportPct >= 70 ? theme.success : exportPct >= 40 ? theme.warning : theme.danger;
+
+  const exportToCSV = async () => {
+    try {
+      if (total === 0) {
+        Alert.alert("Empty Session", "No data to export for this batch.");
+        return;
+      }
+      
+      const safeName = (batch.batch_name || 'batch').replace(/ /g, '_');
+      const efficiency = batch.duration_seconds > 0 ? Math.round((total / batch.duration_seconds) * 60) : 0;
+      
+      const csvContent = [
+        "Batch Name,Harvest Date,Status,Total Beans,Export Grade,Needs Drying,Rejected,Criollo,Forastero,Trinitario,Duration(seconds),Efficiency(beans/min)",
+        `${batch.batch_name || 'Unnamed'},${batch.harvest_date},${batch.status},${total},${batch.export_grade_count},${batch.needs_drying_count},${batch.rejected_count},${batch.criollo_count},${batch.forastero_count},${batch.trinitario_count},${batch.duration_seconds},${efficiency}`
+      ].join('\n');
+      
+      const fileUri = `${FileSystem.documentDirectory}${safeName}_Report.csv`;
+      await FileSystem.writeAsStringAsync(fileUri, csvContent, { encoding: FileSystem.EncodingType.UTF8 });
+      
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(fileUri);
+      } else {
+        Alert.alert("Export Successful", "CSV Export generated. (Sharing disabled in this simulator environment).");
+      }
+    } catch (e: any) {
+      Alert.alert("Export Error", e.message);
+    }
+  };
 
   return (
     <Animated.View
       entering={FadeInDown.delay(100)}
-      style={[styles.batchCard, { backgroundColor: theme.surface }, Shadows.sm]}
     >
-      {/* Header Row */}
+      <TouchableOpacity 
+        style={[styles.batchCard, { backgroundColor: theme.surface }, Shadows.sm]} 
+        activeOpacity={0.7}
+        onPress={() => router.push(`/batch/${batch.id}` as any)}
+      >
+        {/* Header Row */}
       <View style={styles.batchHeader}>
-        <View>
-          <Text style={[styles.batchDate, { color: theme.text }]}>{date}</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.batchDate, { color: theme.text }]} numberOfLines={1}>
+            {batch.batch_name && batch.batch_name.trim() !== '' ? batch.batch_name : `Batch #${batch.id.substring(0, 4).toUpperCase()} (${batch.harvest_date})`}
+          </Text>
           <Text style={[styles.batchHarvest, { color: theme.textSecondary }]}>
-            Harvest: {batch.harvest_date}
+            {displayDate}
           </Text>
         </View>
-        <View style={[styles.exportBadge, { backgroundColor: exportPct >= 70 ? theme.successBg : exportPct >= 40 ? theme.warningBg : theme.dangerBg }]}>
-          <Text style={[styles.exportText, { color: exportPct >= 70 ? theme.success : exportPct >= 40 ? theme.warning : theme.danger }]}>
-            {exportPct}% Export
-          </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+          {/* Virtual PDF Icon for Drill Down requirements */}
+          <TouchableOpacity 
+            onPress={exportToCSV}
+            style={{ padding: Spacing.xs, backgroundColor: theme.border, borderRadius: Radius.sm }}
+          >
+            <Text style={{ fontSize: 16 }}>📄</Text>
+          </TouchableOpacity>
+          <View style={[styles.exportBadge, { backgroundColor: badgeBg }]}>
+            <Text style={[styles.exportText, { color: badgeText }]}>
+              {exportPct}% Export
+            </Text>
+          </View>
         </View>
       </View>
 
       {/* Bar Charts Row */}
-      <View style={{ flexDirection: 'row', gap: Spacing.xl, marginBottom: Spacing.md }}>
-        {/* Varieties */}
-        <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: Typography.fontSize.xs, fontFamily: Typography.fontFamily.bold, color: theme.text, marginBottom: Spacing.sm }}>Variety Distribution</Text>
-            <HorizontalBar label="Criollo" value={batch.criollo_count} max={total} color="#8D6E63" theme={theme} />
-            <HorizontalBar label="Forastero" value={batch.forastero_count} max={total} color="#5D4037" theme={theme} />
-            <HorizontalBar label="Trinitario" value={batch.trinitario_count} max={total} color={theme.accent} theme={theme} />
+      {total > 0 ? (
+        <View style={{ flexDirection: 'row', gap: Spacing.xl, marginBottom: Spacing.md }}>
+          {/* Varieties */}
+          <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: Typography.fontSize.xs, fontFamily: Typography.fontFamily.bold, color: theme.text, marginBottom: Spacing.sm }}>Variety Distribution</Text>
+              <HorizontalBar label="Criollo" value={batch.criollo_count} max={total} color="#8D6E63" theme={theme} />
+              <HorizontalBar label="Forastero" value={batch.forastero_count} max={total} color="#5D4037" theme={theme} />
+              <HorizontalBar label="Trinitario" value={batch.trinitario_count} max={total} color={theme.accent} theme={theme} />
+          </View>
+          
+          {/* Quality */}
+          <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: Typography.fontSize.xs, fontFamily: Typography.fontFamily.bold, color: theme.text, marginBottom: Spacing.sm }}>Quality Grading</Text>
+              <HorizontalBar label="Export" value={batch.export_grade_count} max={total} color={theme.success} theme={theme} />
+              <HorizontalBar label="Drying" value={batch.needs_drying_count} max={total} color={theme.warning} theme={theme} />
+              <HorizontalBar label="Rejected" value={batch.rejected_count} max={total} color={theme.danger} theme={theme} />
+          </View>
         </View>
-        
-        {/* Quality */}
-        <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: Typography.fontSize.xs, fontFamily: Typography.fontFamily.bold, color: theme.text, marginBottom: Spacing.sm }}>Quality Grading</Text>
-            <HorizontalBar label="Export" value={batch.export_grade_count} max={total} color={theme.success} theme={theme} />
-            <HorizontalBar label="Drying" value={batch.needs_drying_count} max={total} color={theme.warning} theme={theme} />
-            <HorizontalBar label="Rejected" value={batch.rejected_count} max={total} color={theme.danger} theme={theme} />
+      ) : (
+        <View style={{ paddingVertical: Spacing.lg, alignItems: 'center', opacity: 0.5, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border, marginBottom: Spacing.sm }}>
+          <Text style={{ color: theme.textSecondary, fontSize: Typography.fontSize.sm, fontStyle: 'italic' }}>
+            No beans sorted in this session.
+          </Text>
         </View>
-      </View>
+      )}
 
       {/* Footer */}
-      <View style={[styles.batchFooter, { borderTopColor: theme.border }]}>
-        <Text style={[styles.footerStat, { color: theme.textSecondary }]}>
-          🫘 {total} beans
-        </Text>
-        <Text style={[styles.footerStat, { color: theme.textSecondary }]}>
-          ⏱ {formatTime(batch.duration_seconds)}
-        </Text>
-        <Text style={[styles.footerStat, { color: theme.textSecondary }]}>
-          ⚡ {batch.duration_seconds > 0 ? Math.round((total / batch.duration_seconds) * 60) : 0}/min
-        </Text>
+      <View style={styles.batchFooterContainer}>
+        <View style={[styles.batchFooter, { borderTopColor: theme.border }]}>
+          <Text style={[styles.footerStat, { color: theme.textSecondary }]}>
+            🫘 {total} beans
+          </Text>
+          <Text style={[styles.footerStat, { color: theme.textSecondary }]}>
+            ⏱ {formatTime(batch.duration_seconds)}
+          </Text>
+          <Text style={[styles.footerStat, { color: theme.textSecondary }]}>
+            ⚡ {batch.duration_seconds > 0 ? Math.round((total / batch.duration_seconds) * 60) : 0} beans/min
+          </Text>
+        </View>
+        {/* Drill down visual indicator */}
+        <View style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border, paddingTop: Spacing.sm, alignItems: 'center', marginTop: Spacing.sm }}>
+           <Text style={{ color: theme.primary, fontSize: Typography.fontSize.sm, fontFamily: Typography.fontFamily.medium }}>
+             View Details  〉
+           </Text>
+        </View>
       </View>
+      </TouchableOpacity>
     </Animated.View>
   );
 }
@@ -106,6 +180,76 @@ export default function HistoryScreen() {
     [theme]
   );
 
+  // ─── PRESENTATION MOCK DATA ───
+  const mockBatches: Batch[] = [
+    {
+      id: 'mock-1',
+      user_id: 'mock',
+      batch_name: 'Premium Lot A',
+      harvest_date: new Date().toISOString().split('T')[0],
+      target_bean_count: 500,
+      status: 'completed',
+      criollo_count: 220,
+      forastero_count: 40,
+      trinitario_count: 40,
+      export_grade_count: 260,
+      needs_drying_count: 30,
+      rejected_count: 10,
+      total_beans: 300,
+      duration_seconds: 642,
+      started_at: new Date(Date.now() - 3600000).toISOString(),
+      completed_at: new Date(Date.now() - 3000000).toISOString(),
+      created_at: new Date(Date.now() - 3600000).toISOString(),
+    },
+    {
+      id: 'mock-2',
+      user_id: 'mock',
+      batch_name: 'Standard Mix B',
+      harvest_date: new Date(Date.now() - 86400000).toISOString().split('T')[0],
+      target_bean_count: 1000,
+      status: 'completed',
+      criollo_count: 300,
+      forastero_count: 300,
+      trinitario_count: 200,
+      export_grade_count: 600,
+      needs_drying_count: 120,
+      rejected_count: 80,
+      total_beans: 800,
+      duration_seconds: 1840,
+      started_at: new Date(Date.now() - 86400000).toISOString(),
+      completed_at: new Date(Date.now() - 84600000).toISOString(),
+      created_at: new Date(Date.now() - 86400000).toISOString(),
+    },
+    {
+      id: 'mock-3',
+      user_id: 'mock',
+      batch_name: 'Rainy Day Harvest',
+      harvest_date: new Date(Date.now() - 172800000).toISOString().split('T')[0],
+      target_bean_count: 200,
+      status: 'completed',
+      criollo_count: 50,
+      forastero_count: 40,
+      trinitario_count: 60,
+      export_grade_count: 60,
+      needs_drying_count: 70,
+      rejected_count: 20,
+      total_beans: 150,
+      duration_seconds: 400,
+      started_at: new Date(Date.now() - 172800000).toISOString(),
+      completed_at: new Date(Date.now() - 172400000).toISOString(),
+      created_at: new Date(Date.now() - 172800000).toISOString(),
+    }
+  ];
+
+  const presentationBatches = [...mockBatches, ...batches];
+  const presentationTotalBatches = totalBatches + mockBatches.length;
+  const presentationTotalBeans = totalBeansSorted + mockBatches.reduce((sum, b) => sum + b.total_beans, 0);
+  const realExportTotal = totalBeansSorted > 0 ? (totalBeansSorted * globalExportRate) / 100 : 0;
+  const mockExportTotal = mockBatches.reduce((sum, b) => sum + b.export_grade_count, 0);
+  const presentationExportRate = presentationTotalBeans > 0 
+    ? ((realExportTotal + mockExportTotal) / presentationTotalBeans) * 100 
+    : 0;
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       {/* Header */}
@@ -119,22 +263,22 @@ export default function HistoryScreen() {
       {/* Summary Cards */}
       <View style={styles.summaryRow}>
         <View style={[styles.summaryCard, { backgroundColor: theme.surface }, Shadows.sm]}>
-          <Text style={[styles.summaryNumber, { color: theme.primary }]}>{totalBatches}</Text>
+          <Text style={[styles.summaryNumber, { color: theme.primary }]}>{presentationTotalBatches}</Text>
           <Text style={[styles.summaryLabel, { color: theme.textSecondary }]}>Total{'\n'}Batches</Text>
         </View>
         <View style={[styles.summaryCard, { backgroundColor: theme.surface }, Shadows.sm]}>
-          <Text style={[styles.summaryNumber, { color: theme.success }]}>{totalBeansSorted}</Text>
+          <Text style={[styles.summaryNumber, { color: theme.success }]}>{presentationTotalBeans}</Text>
           <Text style={[styles.summaryLabel, { color: theme.textSecondary }]}>Beans{'\n'}Sorted</Text>
         </View>
         <View style={[styles.summaryCard, { backgroundColor: theme.surface }, Shadows.sm]}>
-          <Text style={[styles.summaryNumber, { color: theme.accent }]}>{Math.round(globalExportRate)}%</Text>
+          <Text style={[styles.summaryNumber, { color: theme.accent }]}>{Math.round(presentationExportRate)}%</Text>
           <Text style={[styles.summaryLabel, { color: theme.textSecondary }]}>Export{'\n'}Rate</Text>
         </View>
       </View>
 
       {/* Batch List */}
       <FlatList
-        data={batches}
+        data={presentationBatches}
         renderItem={renderItem}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
@@ -189,6 +333,7 @@ const styles = StyleSheet.create({
   statItemValue: { fontSize: Typography.fontSize.lg, fontFamily: Typography.fontFamily.bold },
   statItemLabel: { fontSize: Typography.fontSize.xs, fontFamily: Typography.fontFamily.medium, marginTop: 2 },
 
+  batchFooterContainer: { marginTop: Spacing.md },
   batchFooter: { flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: StyleSheet.hairlineWidth, paddingTop: Spacing.sm },
   footerStat: { fontSize: Typography.fontSize.sm, fontFamily: Typography.fontFamily.regular },
 

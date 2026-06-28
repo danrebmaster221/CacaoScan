@@ -5,6 +5,7 @@ import { useAuth } from '@/context/AuthContext';
 export interface Batch {
   id: string;
   user_id: string;
+  batch_name: string;
   harvest_date: string;
   target_bean_count: number;
   status: 'active' | 'paused' | 'completed';
@@ -40,8 +41,9 @@ export function useBatchController() {
   useEffect(() => {
     if (!activeBatch) return;
 
+    // Appending a random string prevents strict mode from reusing a 'joining' channel
     const channel = supabase
-      .channel(`batch-${activeBatch.id}`)
+      .channel(`batch-${activeBatch.id}-${Date.now()}`)
       .on(
         'postgres_changes',
         {
@@ -61,21 +63,35 @@ export function useBatchController() {
     };
   }, [activeBatch?.id]);
 
+  // Computed values
+  const totalBeans = activeBatch
+    ? activeBatch.criollo_count + activeBatch.forastero_count + activeBatch.trinitario_count
+    : 0;
+
   // Timer management
   useEffect(() => {
-    if (activeBatch?.status === 'active') {
+    if (activeBatch?.status === 'active' && totalBeans > 0) {
       startTimer();
-    } else {
+    } else if (activeBatch?.status !== 'active') {
       stopTimer();
     }
+  }, [activeBatch?.status, totalBeans]);
 
+  useEffect(() => {
     return () => stopTimer();
-  }, [activeBatch?.status]);
+  }, []);
 
   function startTimer() {
     if (timerRef.current) return;
     timerRef.current = setInterval(() => {
-      setElapsedSeconds((prev) => prev + 1);
+      setElapsedSeconds((prev) => {
+        const next = prev + 1;
+        // Auto-save duration every 10 seconds to prevent data loss on crash
+        if (next % 10 === 0 && activeBatch?.id) {
+          supabase.from('batches').update({ duration_seconds: next }).eq('id', activeBatch.id).then();
+        }
+        return next;
+      });
     }, 1000);
   }
 
@@ -105,10 +121,10 @@ export function useBatchController() {
 
       if (data) {
         setActiveBatch(data as Batch);
-        // Calculate elapsed time from when it started
-        const started = new Date(data.started_at).getTime();
-        const now = Date.now();
-        setElapsedSeconds(Math.floor((now - started) / 1000) - (data.duration_seconds || 0) + data.duration_seconds);
+        
+        // Timer only continues from last known duration immediately 
+        // to prevent gap loading issues when timer pauses on zero beans
+        setElapsedSeconds(data.duration_seconds || 0);
       }
     } catch (e) {
       console.warn('Error loading batch:', e);
@@ -116,7 +132,7 @@ export function useBatchController() {
   }
 
   const createBatch = useCallback(
-    async (harvestDate: string, targetBeanCount: number) => {
+    async (batchName: string, harvestDate: string, targetBeanCount: number = 0) => {
       if (!user) return;
       setIsLoading(true);
       setError(null);
@@ -126,6 +142,7 @@ export function useBatchController() {
           .from('batches')
           .insert({
             user_id: user.id,
+            batch_name: batchName,
             harvest_date: harvestDate,
             target_bean_count: targetBeanCount,
             status: 'active',
@@ -195,16 +212,28 @@ export function useBatchController() {
     setIsLoading(true);
 
     try {
-      const { error: updateError } = await supabase
-        .from('batches')
-        .update({
-          status: 'completed',
-          duration_seconds: elapsedSeconds,
-          completed_at: new Date().toISOString(),
-        })
-        .eq('id', activeBatch.id);
+      const currentTotal = activeBatch.criollo_count + activeBatch.forastero_count + activeBatch.trinitario_count;
+      
+      if (currentTotal === 0) {
+        // Ghost Batch Gatekeeper Logic -> Delete empty aborted sessions
+        const { error: deleteError } = await supabase
+          .from('batches')
+          .delete()
+          .eq('id', activeBatch.id);
+          
+        if (deleteError) throw new Error(deleteError.message);
+      } else {
+        const { error: updateError } = await supabase
+          .from('batches')
+          .update({
+            status: 'completed',
+            duration_seconds: elapsedSeconds,
+            completed_at: new Date().toISOString(),
+          })
+          .eq('id', activeBatch.id);
 
-      if (updateError) throw new Error(updateError.message);
+        if (updateError) throw new Error(updateError.message);
+      }
 
       setActiveBatch(null);
       setElapsedSeconds(0);
@@ -227,13 +256,8 @@ export function useBatchController() {
     });
   }, []);
 
-  // Computed values
-  const totalBeans = activeBatch
-    ? activeBatch.criollo_count + activeBatch.forastero_count + activeBatch.trinitario_count
-    : 0;
-
-  const throughput =
-    elapsedSeconds > 0 ? Math.round((totalBeans / elapsedSeconds) * 60) : 0;
+  // Computed throughput and progress
+  const throughput = elapsedSeconds > 0 ? Math.round((totalBeans / elapsedSeconds) * 60) : 0;
 
   const progress =
     activeBatch && activeBatch.target_bean_count > 0
