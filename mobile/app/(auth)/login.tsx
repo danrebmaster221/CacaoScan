@@ -142,7 +142,7 @@ export default function LoginScreen() {
         {/* Logo / Brand Section */}
         <View style={styles.brandSection}>
           <Image
-            source={require('@/assets/images/logo.png')}
+            source={require('@/assets/images/splash-logo-removebg-preview.png')}
             style={styles.logoImage}
             resizeMode="contain"
           />

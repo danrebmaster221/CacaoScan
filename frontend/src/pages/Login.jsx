@@ -38,7 +38,7 @@ export default function Login() {
   return (
     <div className="min-h-screen bg-[#FFF8F0] flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center flex flex-col items-center">
-        <img src="/logo.png" alt="CacaoScan Logo" className="w-96 md:w-[400px] h-auto -mt-20 -mb-16 object-contain" />
+        <img src="/splash-logo-removebg-preview.png" alt="CacaoScan Logo" className="w-96 md:w-[400px] h-auto -mt-20 -mb-16 object-contain" />
         <h2 className="text-center text-3xl font-extrabold text-[#3E2723] z-10 relative">
           CacaoScan Central
         </h2>

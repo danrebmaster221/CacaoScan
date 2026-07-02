@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -6,7 +6,7 @@ import {
   SafeAreaView,
   TouchableOpacity,
   ScrollView,
-  Alert,
+  Modal,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Colors, Typography, Spacing, Radius, Shadows } from '@/constants/theme';
@@ -56,14 +56,12 @@ export default function SettingsScreen() {
   const { user, userRole, signOut } = useAuth();
   const router = useRouter();
 
+  const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
+
   const displayName = user?.user_metadata?.full_name || 'Farmer';
-  const farmLocation = user?.user_metadata?.farm_location || 'Not set';
 
   function handleSignOut() {
-    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Sign Out', style: 'destructive', onPress: signOut },
-    ]);
+    setShowSignOutConfirm(true);
   }
 
   return (
@@ -94,66 +92,66 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* Farm Section */}
-        <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>FARM</Text>
+        {/* Profile & Machine Section */}
+        <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>PROFILE AND CONFIG</Text>
         <View style={[styles.settingsGroup, { backgroundColor: theme.surface }, Shadows.sm]}>
-          <SettingsItem
-            icon="📍"
-            label="Farm Location"
-            subtitle={farmLocation}
-            onPress={() => {}}
-            theme={theme}
-          />
           <SettingsItem
             icon="👤"
             label="Edit Profile"
-            subtitle="Name, contact details"
-            onPress={() => {}}
+            subtitle="Password Management"
+            onPress={() => router.push('/settings/edit-profile' as any)}
+            theme={theme}
+          />
+          <SettingsItem
+            icon="🔗"
+            label="Machine Pairing"
+            subtitle="Enter Master PIN to link hardware"
+            onPress={() => router.push('/settings/machine-pairing' as any)}
             theme={theme}
           />
         </View>
 
         {/* Machine Section */}
-        <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>MACHINE</Text>
+        <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>HARDWARE MODULES</Text>
         <View style={[styles.settingsGroup, { backgroundColor: theme.surface }, Shadows.sm]}>
           <SettingsItem
-            icon="🔧"
-            label="Manual Override"
-            subtitle="Servo control, conveyor speed"
-            onPress={() => router.push('/manual-override' as any)}
+            icon="📶"
+            label="Hardware Monitor"
+            subtitle="Latency, RSSI, and Uptime"
+            onPress={() => router.push('/settings/hardware-monitor' as any)}
             theme={theme}
           />
           <SettingsItem
             icon="🎯"
             label="Vision Calibration"
-            subtitle="Set focal point, camera settings"
-            onPress={() => {}}
+            subtitle="Align physical AI tray target zones"
+            onPress={() => router.push('/settings/vision-calibration' as any)}
             theme={theme}
           />
           <SettingsItem
-            icon="📶"
-            label="Hardware Monitor"
-            subtitle="ESP32 battery, Wi-Fi signal"
-            onPress={() => {}}
+            icon="🔧"
+            label="Manual Override"
+            subtitle="Direct Servo and Actuator control"
+            onPress={() => router.push('/manual-override' as any)}
             theme={theme}
           />
         </View>
 
         {/* App Section */}
-        <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>APP</Text>
+        <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>APP SYSTEM</Text>
         <View style={[styles.settingsGroup, { backgroundColor: theme.surface }, Shadows.sm]}>
           <SettingsItem
             icon="🔔"
             label="Notifications"
-            subtitle="Push alerts, thresholds"
-            onPress={() => {}}
+            subtitle="Predictive thresholds and bounds"
+            onPress={() => router.push('/settings/notifications' as any)}
             theme={theme}
           />
           <SettingsItem
             icon="ℹ️"
             label="About CacaoScan"
-            subtitle="Version 1.0.0"
-            onPress={() => {}}
+            subtitle="System Metadata & Versioning"
+            onPress={() => router.push('/settings/about' as any)}
             theme={theme}
           />
         </View>
@@ -169,6 +167,39 @@ export default function SettingsScreen() {
           />
         </View>
       </ScrollView>
+
+      {/* Cross-Platform Confirm Sign Out Modal */}
+      <Modal
+        visible={showSignOutConfirm}
+        transparent={true}
+        animationType="fade"
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.surface }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>Sign Out</Text>
+            <Text style={[styles.modalDesc, { color: theme.textSecondary }]}>
+              Are you sure you want to sign out of the CacaoScan system?
+            </Text>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalBtn, { backgroundColor: theme.border }]}
+                onPress={() => setShowSignOutConfirm(false)}
+              >
+                <Text style={{ fontFamily: Typography.fontFamily.semiBold, color: theme.text }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtn, { backgroundColor: theme.danger }]}
+                onPress={() => {
+                  setShowSignOutConfirm(false);
+                  signOut();
+                }}
+              >
+                <Text style={{ fontFamily: Typography.fontFamily.semiBold, color: '#FFF' }}>Confirm</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -270,5 +301,43 @@ const styles = StyleSheet.create({
   chevron: {
     fontSize: 22,
     fontWeight: '300',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: Spacing.xl,
+  },
+  modalContent: {
+    width: '100%',
+    maxWidth: 400,
+    borderRadius: Radius.lg,
+    padding: Spacing.xl,
+    alignItems: 'center',
+  },
+  modalTitle: {
+    fontSize: Typography.fontSize.xl,
+    fontFamily: Typography.fontFamily.bold,
+    marginBottom: Spacing.md,
+  },
+  modalDesc: {
+    fontSize: Typography.fontSize.sm,
+    fontFamily: Typography.fontFamily.medium,
+    textAlign: 'center',
+    marginBottom: Spacing.xl,
+    lineHeight: 20,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: Spacing.md,
+    width: '100%',
+  },
+  modalBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: Radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

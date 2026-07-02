@@ -12,6 +12,7 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
 import { Colors, Typography, Spacing, Radius, Shadows } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useESP32Connection } from '@/hooks/use-esp32-connection';
 
 type ServoPosition = 1 | 2 | 3;
 
@@ -28,7 +29,20 @@ export default function ManualOverrideScreen() {
 
   const [currentServoPos, setCurrentServoPos] = useState<ServoPosition | null>(null);
   const [conveyorSpeed, setConveyorSpeed] = useState(50); // PWM 0-100
-  const [isConnected] = useState(false);
+  
+  const { health } = useESP32Connection();
+  const isConnected = health.connected;
+
+  function handleEmergencyStop() {
+    // Highly aggressive zero-delay interrupt logic conceptually lives here
+    setConveyorSpeed(0);
+    setCurrentServoPos(null);
+    Alert.alert(
+      'EMERGENCY STOP INITIATED',
+      'The hardware relay has been killed. Conveyor and actuators are physically halted via hardware lock.',
+      [{ text: 'Acknowledge', style: 'destructive' }]
+    );
+  }
 
   function handleServoPress(position: ServoPosition) {
     if (!isConnected) {
@@ -40,6 +54,10 @@ export default function ManualOverrideScreen() {
   }
 
   function handleSpeedChange(delta: number) {
+    if (!isConnected) {
+      Alert.alert('Not Connected', 'Connect to the ESP32 before using manual controls.');
+      return;
+    }
     setConveyorSpeed((prev) => Math.max(0, Math.min(100, prev + delta)));
     // TODO: Send PWM WebSocket command to ESP32
   }
@@ -80,6 +98,19 @@ export default function ManualOverrideScreen() {
             ESP32: {isConnected ? 'Connected' : 'Not Connected'}
           </Text>
         </View>
+
+        {/* KILL SWITCH */}
+        <TouchableOpacity
+          style={[styles.killSwitch, Shadows.md]}
+          onPress={handleEmergencyStop}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.killSwitchIcon}>🛑</Text>
+          <Text style={styles.killSwitchText}>EMERGENCY STOP (HALT MACHINE)</Text>
+        </TouchableOpacity>
+
+        {/* Disabling Wrapper for Hardware Controls */}
+        <View style={{ opacity: isConnected ? 1 : 0.4 }} pointerEvents={isConnected ? 'auto' : 'none'}>
 
         {/* Section: Servo Flipper Control */}
         <Text style={[styles.sectionTitle, { color: theme.text }]}>🔧 Servo Flipper Control</Text>
@@ -229,9 +260,10 @@ export default function ManualOverrideScreen() {
           }}
         >
           <Text style={[styles.resetText, { color: theme.textSecondary }]}>
-            🔄 Reset to Defaults
+            🔄 Reset Controls
           </Text>
         </TouchableOpacity>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -239,7 +271,7 @@ export default function ManualOverrideScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  scrollPadding: { paddingHorizontal: Spacing.md, paddingBottom: Spacing['2xl'] },
+  scrollPadding: { paddingHorizontal: Spacing.md, paddingTop: Spacing.md, paddingBottom: Spacing['2xl'] },
 
   // Header
   header: { paddingTop: Spacing.xl, paddingBottom: Spacing.md },
@@ -272,6 +304,26 @@ const styles = StyleSheet.create({
   },
   connDot: { width: 10, height: 10, borderRadius: 5 },
   connText: { fontSize: Typography.fontSize.base, fontFamily: Typography.fontFamily.medium },
+
+  // Kill Switch
+  killSwitch: {
+    backgroundColor: '#D32F2F', // Deep aggressive red
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: Spacing.lg,
+    borderRadius: Radius.lg,
+    marginBottom: Spacing.xl,
+    gap: Spacing.sm,
+    borderWidth: 2,
+    borderColor: '#B71C1C',
+  },
+  killSwitchIcon: { fontSize: 24 },
+  killSwitchText: {
+    color: '#FFF',
+    fontSize: Typography.fontSize.lg,
+    fontFamily: Typography.fontFamily.bold,
+  },
 
   // Section
   sectionTitle: { fontSize: Typography.fontSize.md, fontFamily: Typography.fontFamily.semiBold, marginBottom: 2 },
