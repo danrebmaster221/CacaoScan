@@ -4,25 +4,29 @@
     "slug": "cacaoscan",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/logo.png",
     "scheme": "cacaoscan",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/splash-logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FFF8F0"
+    },
     "ios": {
       "supportsTablet": true
     },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#FFF8F0",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "foregroundImage": "./assets/images/logo.png"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/logo.png"
     },
     "plugins": [
       "expo-router",
@@ -32,10 +36,7 @@
           "image": "./assets/images/splash-logo.png",
           "imageWidth": 320,
           "resizeMode": "contain",
-          "backgroundColor": "#FFF8F0",
-          "dark": {
-            "backgroundColor": "#2C1F1A"
-          }
+          "backgroundColor": "#FFF8F0"
         }
       ],
       "@react-native-community/datetimepicker"

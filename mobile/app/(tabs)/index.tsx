@@ -23,6 +23,7 @@ import { useESP32Connection } from '@/hooks/use-esp32-connection';
 import { AnimatedCounter } from '@/components/AnimatedCounter';
 import { SwipeToStop } from '@/components/SwipeToStop';
 import { Sparkline } from '@/components/Sparkline';
+import { Skeleton } from '@/components/Skeleton';
 
 // ─── Progress Ring Component ──────────────────────────────────────────────
 function ProgressRing({
@@ -392,15 +393,15 @@ export default function DashboardScreen() {
         <Text style={[styles.sectionTitle, { color: theme.text }]}>Today&apos;s Summary</Text>
         <View style={styles.counterRow}>
           <View style={[styles.statCard, { backgroundColor: theme.surface }, Shadows.sm]}>
-            <Text style={[styles.statNumber, { color: theme.primary }]}>0</Text>
+            {isLoading ? <Skeleton width={50} height={32} style={{ marginBottom: Spacing.xs }} /> : <Text style={[styles.statNumber, { color: theme.primary }]}>0</Text>}
             <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Beans{'\n'}Sorted</Text>
           </View>
           <View style={[styles.statCard, { backgroundColor: theme.surface }, Shadows.sm]}>
-            <Text style={[styles.statNumber, { color: theme.success }]}>0</Text>
+            {isLoading ? <Skeleton width={50} height={32} style={{ marginBottom: Spacing.xs }} /> : <Text style={[styles.statNumber, { color: theme.success }]}>0</Text>}
             <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Export{'\n'}Grade</Text>
           </View>
           <View style={[styles.statCard, { backgroundColor: theme.surface }, Shadows.sm]}>
-            <Text style={[styles.statNumber, { color: theme.danger }]}>0</Text>
+            {isLoading ? <Skeleton width={50} height={32} style={{ marginBottom: Spacing.xs }} /> : <Text style={[styles.statNumber, { color: theme.danger }]}>0</Text>}
             <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Rejected</Text>
           </View>
         </View>

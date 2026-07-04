@@ -1,8 +1,12 @@
-import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Login from './pages/Login';
 import DashboardLayout from './components/layout/DashboardLayout';
+import DashboardAnalytics from './pages/DashboardAnalytics';
+import BatchManagement from './pages/BatchManagement';
+import YieldPredictor from './pages/YieldPredictor';
+import AIIntelligenceHub from './pages/AIIntelligenceHub';
+import HardwareConfig from './pages/HardwareConfig';
 
 const ModuleUnderConstruction = ({ title }) => (
     <div className="bg-white rounded-xl shadow-sm border border-[#A1887F]/20 p-10 text-center animate-pulse">
@@ -34,11 +38,11 @@ export default function App() {
           
           {/* Protected Structural Shell */}
           <Route path="/dashboard" element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>}>
-             <Route index element={<ModuleUnderConstruction title="Analytics Board Initialization..." />} />
-             <Route path="batches" element={<ModuleUnderConstruction title="Central Batch Ledger Pending..." />} />
-             <Route path="predictions" element={<ModuleUnderConstruction title="Yield & Logic Predictor Offline..." />} />
-             <Route path="mlops" element={<ModuleUnderConstruction title="AI Feedback Center Secure..." />} />
-             <Route path="hardware" element={<ModuleUnderConstruction title="Hardware Diagnostics Ready..." />} />
+             <Route index element={<DashboardAnalytics />} />
+             <Route path="batches" element={<BatchManagement />} />
+             <Route path="predictions" element={<YieldPredictor />} />
+             <Route path="mlops" element={<AIIntelligenceHub />} />
+             <Route path="hardware" element={<HardwareConfig />} />
              <Route path="admin" element={<ModuleUnderConstruction title="Administrative RBAC Vault Encrypted..." />} />
           </Route>
 

@@ -12,6 +12,8 @@ import Animated, {
 import { Colors, Typography, Spacing, Radius, Shadows } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useESP32Connection } from '@/hooks/use-esp32-connection';
+import { Skeleton } from '@/components/Skeleton';
+import { Ionicons } from '@expo/vector-icons';
 
 function PulseIndicator({ active, color }: { active: boolean; color: string }) {
   const scale = useSharedValue(1);
@@ -104,6 +106,12 @@ export default function HardwareMonitorScreen() {
   const [fakeRssi, setFakeRssi] = React.useState(-62);
   const [uptime, setUptime] = React.useState(43200); // 12 hours
   const [pingHistory, setPingHistory] = React.useState<number[]>(Array(40).fill(12));
+  const [isLoading, setIsLoading] = React.useState(true);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setIsLoading(false), 1200);
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
@@ -146,8 +154,9 @@ export default function HardwareMonitorScreen() {
       />
       
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={{ marginBottom: Spacing.sm }}>
-          <Text style={{ fontSize: Typography.fontSize.base, fontFamily: Typography.fontFamily.medium, color: theme.accent }}>← Back</Text>
+        <TouchableOpacity onPress={() => router.back()} style={{ marginBottom: Spacing.sm, flexDirection: 'row', alignItems: 'center' }}>
+          <Ionicons name="arrow-back" size={20} color={theme.accent} />
+          <Text style={{ fontSize: Typography.fontSize.base, fontFamily: Typography.fontFamily.medium, color: theme.accent, marginLeft: 4 }}>Back</Text>
         </TouchableOpacity>
         <Text style={[styles.title, { color: theme.text }]}>Hardware Monitor</Text>
         <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
@@ -171,69 +180,85 @@ export default function HardwareMonitorScreen() {
       <Text style={[styles.sectionHeading, { color: theme.textSecondary }]}>LIVE TELEMETRY</Text>
       
       <View style={styles.grid}>
-        <TelemetryCard
-          title="Edge Latency"
-          value={isConnected ? Math.max(1, Math.round(fakePing)) : '--'}
-          unit="ms"
-          icon="⚡"
-          theme={theme}
-          status={pingColor}
-        />
-        <TelemetryCard
-          title="Cloud RTT"
-          value={isConnected ? Math.max(1, Math.round(cloudRtt)) : '--'}
-          unit="ms"
-          icon="☁️"
-          theme={theme}
-          status={isConnected ? (cloudRtt > 150 ? 'warning' : 'success') : 'danger'}
-        />
-        <TelemetryCard
-          title="Wi-Fi Signal (RSSI)"
-          value={isConnected ? Math.round(fakeRssi) : '--'}
-          unit="dBm"
-          icon="📶"
-          theme={theme}
-          status={rssiColor}
-        />
-        <TelemetryCard
-          title="Machine State"
-          value={isConnected ? machineState : 'OFFLINE'}
-          icon="⚙️"
-          theme={theme}
-          status={isConnected ? (machineState === 'RUNNING' ? 'success' : 'warning') : 'danger'}
-        />
-        <TelemetryCard
-          title="System Uptime"
-          value={isConnected ? formatUptime(uptime) : '--'}
-          icon="⏱️"
-          theme={theme}
-        />
+        {isLoading ? (
+          <>
+            {[1, 2, 3, 4, 5].map((i) => (
+               <View key={i} style={[styles.card, { backgroundColor: theme.surface, height: 86 }, Shadows.sm]}>
+                 <Skeleton width={100} height={16} style={{ marginBottom: Spacing.sm }} />
+                 <Skeleton width={60} height={28} />
+               </View>
+            ))}
+          </>
+        ) : (
+          <>
+            <TelemetryCard
+              title="Edge Latency"
+              value={isConnected ? Math.max(1, Math.round(fakePing)) : '--'}
+              unit="ms"
+              icon="⚡"
+              theme={theme}
+              status={pingColor}
+            />
+            <TelemetryCard
+              title="Cloud RTT"
+              value={isConnected ? Math.max(1, Math.round(cloudRtt)) : '--'}
+              unit="ms"
+              icon="☁️"
+              theme={theme}
+              status={isConnected ? (cloudRtt > 150 ? 'warning' : 'success') : 'danger'}
+            />
+            <TelemetryCard
+              title="Wi-Fi Signal (RSSI)"
+              value={isConnected ? Math.round(fakeRssi) : '--'}
+              unit="dBm"
+              icon="📶"
+              theme={theme}
+              status={rssiColor}
+            />
+            <TelemetryCard
+              title="Machine State"
+              value={isConnected ? machineState : 'OFFLINE'}
+              icon="⚙️"
+              theme={theme}
+              status={isConnected ? (machineState === 'RUNNING' ? 'success' : 'warning') : 'danger'}
+            />
+            <TelemetryCard
+              title="System Uptime"
+              value={isConnected ? formatUptime(uptime) : '--'}
+              icon="⏱️"
+              theme={theme}
+            />
+          </>
+        )}
       </View>
 
       {/* 5-Minute Stability Chart */}
       <Text style={[styles.sectionHeading, { color: theme.textSecondary }]}>CONNECTION STABILITY (5 MIN)</Text>
       <View style={[styles.chartCard, { backgroundColor: theme.surface }, Shadows.sm]}>
         <View style={styles.chartBars}>
-          {pingHistory.map((val, idx) => {
-            // Using inverse logic for "stability" - lower ping is higher stability bar, but typical ping charts show higher bars for higher ping. Let's make the bar represent ping (so lower is better).
-            // Actually, showing signal stability is visually better if the bar is high when good.
-            // Let's just track ping normally: 0ms is bottom, 150ms is top.
-            const heightPct = Math.max(5, Math.min(100, (val / 150) * 100));
-            const barColor = !isConnected ? theme.danger : val > 100 ? theme.warning : theme.primary;
-            return (
-              <View 
-                key={idx} 
-                style={[
-                  styles.chartBar, 
-                  { 
-                    height: `${heightPct}%`, 
-                    backgroundColor: barColor,
-                    opacity: isConnected ? 1 : 0.3 
-                  }
-                ]} 
-              />
-            );
-          })}
+          {isLoading ? (
+             Array(40).fill(0).map((_, idx) => (
+                <Skeleton key={idx} width={6} height={`${Math.max(10, Math.random() * 80 + 20)}%`} borderRadius={2} />
+             ))
+          ) : (
+            pingHistory.map((val, idx) => {
+              const heightPct = Math.max(5, Math.min(100, (val / 150) * 100));
+              const barColor = !isConnected ? theme.danger : val > 100 ? theme.warning : theme.primary;
+              return (
+                <View 
+                  key={idx} 
+                  style={[
+                    styles.chartBar, 
+                    { 
+                      height: `${heightPct}%`, 
+                      backgroundColor: barColor,
+                      opacity: isConnected ? 1 : 0.3 
+                    }
+                  ]} 
+                />
+              );
+            })
+          )}
         </View>
         <View style={styles.chartLabels}>
           <Text style={[styles.chartLabel, { color: theme.textSecondary }]}>-5m</Text>

@@ -12,6 +12,8 @@ import { useRouter } from 'expo-router';
 import { Colors, Typography, Spacing, Radius, Shadows } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useAuth } from '@/context/AuthContext';
+import { useThemeContext, ThemeMode } from '@/context/ThemeContext';
+import { Skeleton } from '@/components/Skeleton';
 
 interface SettingsItemProps {
   icon: string;
@@ -57,6 +59,7 @@ export default function SettingsScreen() {
   const router = useRouter();
 
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
+  const { themeMode, setThemeMode } = useThemeContext();
 
   const displayName = user?.user_metadata?.full_name || 'Farmer';
 
@@ -74,22 +77,35 @@ export default function SettingsScreen() {
 
         {/* Profile Card */}
         <View style={[styles.profileCard, { backgroundColor: theme.surface }, Shadows.md]}>
-          <View style={[styles.avatar, { backgroundColor: theme.primary }]}>
-            <Text style={styles.avatarText}>
-              {displayName.charAt(0).toUpperCase()}
-            </Text>
-          </View>
-          <View style={styles.profileInfo}>
-            <Text style={[styles.profileName, { color: theme.text }]}>{displayName}</Text>
-            <Text style={[styles.profileEmail, { color: theme.textSecondary }]}>
-              {user?.email || 'No email'}
-            </Text>
-            <View style={[styles.roleBadge, { backgroundColor: userRole === 'admin' ? theme.infoBg : theme.successBg }]}>
-              <Text style={[styles.roleText, { color: userRole === 'admin' ? theme.info : theme.success }]}>
-                {userRole === 'admin' ? '🛡️ Admin' : '🌱 Farmer'}
-              </Text>
-            </View>
-          </View>
+          {!user ? (
+             <>
+               <Skeleton width={56} height={56} borderRadius={28} />
+               <View style={styles.profileInfo}>
+                 <Skeleton width={140} height={20} style={{ marginBottom: 4 }} />
+                 <Skeleton width={180} height={14} style={{ marginBottom: 8 }} />
+                 <Skeleton width={60} height={18} />
+               </View>
+             </>
+          ) : (
+             <>
+              <View style={[styles.avatar, { backgroundColor: theme.primary }]}>
+                <Text style={styles.avatarText}>
+                  {displayName.charAt(0).toUpperCase()}
+                </Text>
+              </View>
+              <View style={styles.profileInfo}>
+                <Text style={[styles.profileName, { color: theme.text }]}>{displayName}</Text>
+                <Text style={[styles.profileEmail, { color: theme.textSecondary }]}>
+                  {user?.email || 'No email'}
+                </Text>
+                <View style={[styles.roleBadge, { backgroundColor: userRole === 'admin' ? theme.infoBg : theme.successBg }]}>
+                  <Text style={[styles.roleText, { color: userRole === 'admin' ? theme.info : theme.success }]}>
+                    {userRole === 'admin' ? '🛡️ Admin' : '🌱 Farmer'}
+                  </Text>
+                </View>
+              </View>
+            </>
+          )}
         </View>
 
         {/* Profile & Machine Section */}
@@ -135,6 +151,41 @@ export default function SettingsScreen() {
             onPress={() => router.push('/manual-override' as any)}
             theme={theme}
           />
+        </View>
+
+        {/* Appearance Section */}
+        <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>APPEARANCE</Text>
+        <View style={[styles.settingsGroup, { backgroundColor: theme.surface, padding: Spacing.md }, Shadows.sm]}>
+          <Text style={{ fontSize: Typography.fontSize.sm, fontFamily: Typography.fontFamily.medium, color: theme.text, marginBottom: Spacing.md }}>
+            Application Theme
+          </Text>
+          <View style={{ flexDirection: 'row', backgroundColor: theme.background, borderRadius: Radius.sm, overflow: 'hidden' }}>
+            {(['light', 'dark', 'system'] as ThemeMode[]).map((mode) => {
+              const isActive = themeMode === mode;
+              return (
+                <TouchableOpacity
+                  key={mode}
+                  onPress={() => setThemeMode(mode)}
+                  style={{
+                    flex: 1,
+                    paddingVertical: Spacing.sm,
+                    alignItems: 'center',
+                    backgroundColor: isActive ? theme.primary : 'transparent',
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={{
+                    fontSize: Typography.fontSize.sm,
+                    fontFamily: isActive ? Typography.fontFamily.semiBold : Typography.fontFamily.medium,
+                    color: isActive ? '#FFF8F0' : theme.textSecondary,
+                    textTransform: 'capitalize'
+                  }}>
+                    {mode}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         </View>
 
         {/* App Section */}

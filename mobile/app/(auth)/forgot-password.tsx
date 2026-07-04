@@ -26,14 +26,13 @@ import {
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { Colors, Typography, Spacing, Radius } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+
 import { isValidEmail, sanitizeInput } from '@/utils/security';
 
 export default function ForgotPasswordScreen() {
   const router = useRouter();
   const { requestPasswordReset } = useAuth();
-  const colorScheme = useColorScheme() ?? 'light';
-  const theme = Colors[colorScheme];
+  const theme = Colors.light;
 
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);

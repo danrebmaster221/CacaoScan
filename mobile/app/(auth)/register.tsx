@@ -28,8 +28,8 @@ import { StepIndicator } from '@/components/StepIndicator';
 export default function RegisterWizardScreen() {
   const { signUp, verifySignupOTP, resendOTP, signInWithGoogle } = useAuth();
   const router = useRouter();
-  const colorScheme = useColorScheme() ?? 'light';
-  const theme = Colors[colorScheme];
+  // Lock to light mode
+  const theme = Colors.light;
 
   // Wizard State
   const [step, setStep] = useState<1 | 2 | 3>(1);

@@ -96,14 +96,14 @@ export function useESP32Connection(
 
       ws.onclose = () => {
         setIsConnected(false);
-        console.log('❌ Disconnected from ESP32 WebSocket. Attempting reconnect...');
-        
+        // Only log visually if we are developing, avoid spamming terminal every 3s
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = setTimeout(connect, 3000) as unknown as NodeJS.Timeout;
       };
 
-      ws.onerror = (error) => {
-        console.warn('ESP32 WebSocket Error:', error);
+      ws.onerror = () => {
+        // Suppressing the massive React Native error object from printing to terminal
+        // as this is a known expected state when the hardware is offline.
       };
 
       wsRef.current = ws;

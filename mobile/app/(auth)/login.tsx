@@ -31,7 +31,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { Colors, Typography, Spacing, Radius } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+
 import {
   getLockoutInfo,
   sanitizeInput,
@@ -42,8 +42,8 @@ import {
 export default function LoginScreen() {
   const { signIn, signInWithGoogle } = useAuth();
   const router = useRouter();
-  const colorScheme = useColorScheme() ?? 'light';
-  const theme = Colors[colorScheme];
+  // Lock to light mode to match Web Auth and ensure the dark-text logo is visible
+  const theme = Colors.light;
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -314,7 +314,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing['2xl'],
   },
   brandSection: { alignItems: 'center', marginTop: -60, marginBottom: -40 },
-  logoImage: { width: 400, height: 280 },
+  logoImage: { width: 340, height: 160 },
 
   // Security Indicator
   securityIndicator: {

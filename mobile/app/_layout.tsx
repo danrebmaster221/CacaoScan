@@ -14,9 +14,10 @@ import {
 } from '@expo-google-fonts/inter';
 import * as SplashScreen from 'expo-splash-screen';
 
-import { useColorScheme } from '@/hooks/use-color-scheme';
+
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { Colors } from '@/constants/theme';
+import { ThemeProvider as AppThemeProvider, useThemeContext } from '@/context/ThemeContext';
 
 // Prevent splash screen from auto-hiding
 SplashScreen.preventAutoHideAsync();
@@ -79,8 +80,19 @@ function RootLayoutNav() {
   );
 }
 
+function ThemeConsumer() {
+  const { activeTheme } = useThemeContext();
+  const themeValue = activeTheme === 'dark' ? CacaoDarkTheme : CacaoLightTheme;
+  
+  return (
+    <ThemeProvider value={themeValue}>
+      <RootLayoutNav />
+      <StatusBar style={activeTheme === 'dark' ? 'light' : 'dark'} />
+    </ThemeProvider>
+  );
+}
+
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
 
   const [fontsLoaded] = useFonts({
     Inter_400Regular,
@@ -100,11 +112,10 @@ export default function RootLayout() {
   }
 
   return (
-    <AuthProvider>
-      <ThemeProvider value={colorScheme === 'dark' ? CacaoDarkTheme : CacaoLightTheme}>
-        <RootLayoutNav />
-        <StatusBar style="auto" />
-      </ThemeProvider>
-    </AuthProvider>
+    <AppThemeProvider>
+      <AuthProvider>
+        <ThemeConsumer />
+      </AuthProvider>
+    </AppThemeProvider>
   );
 }
