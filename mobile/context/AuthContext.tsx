@@ -32,10 +32,18 @@ import {
 
 type UserRole = 'farmer' | 'admin';
 
+export interface UserProfile {
+  role: UserRole;
+  first_name: string | null;
+  last_name: string | null;
+  farm_location: string | null;
+}
+
 interface AuthContextType {
   session: Session | null;
   user: User | null;
   userRole: UserRole;
+  userProfile: UserProfile | null;
   isLoading: boolean;
   /** Whether the user has passed password auth but still needs OTP */
   pendingMFA: boolean;
@@ -49,6 +57,7 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   requestPasswordReset: (email: string) => Promise<{ error: string | null }>;
   signInWithGoogle: () => Promise<{ error: string | null }>;
+  completeGoogleProfile: (firstName: string, lastName: string, farmLocation: string, password?: string) => Promise<{ error: string | null }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -60,6 +69,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [userRole, setUserRole] = useState<UserRole>('farmer');
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [pendingMFA, setPendingMFA] = useState(false);
   const [pendingMFAEmail, setPendingMFAEmail] = useState<string | null>(null);
@@ -113,19 +123,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('role')
+        .select('role, first_name, last_name, farm_location')
         .eq('id', userId)
         .single();
 
       if (error) {
-        console.warn('Could not fetch user role, defaulting to farmer:', error.message);
+        console.warn('Could not fetch user profile, defaulting to farmer:', error.message);
         setUserRole('farmer');
+        setUserProfile(null);
         return;
       }
 
       setUserRole((data?.role as UserRole) ?? 'farmer');
+      setUserProfile(data as UserProfile);
     } catch {
       setUserRole('farmer');
+      setUserProfile(null);
     }
   }
 
@@ -340,6 +353,62 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   /**
+   * Complete Google OAuth Profile (The "Bridge")
+   */
+  const completeGoogleProfile = useCallback(async (
+    firstName: string, 
+    lastName: string, 
+    farmLocation: string,
+    password?: string
+  ): Promise<{ error: string | null }> => {
+    try {
+      const sessionResponse = await supabase.auth.getSession();
+      const currentSession = sessionResponse.data.session;
+      
+      if (!currentSession?.user) {
+        return { error: 'No active session found.' };
+      }
+
+      const userId = currentSession.user.id;
+
+      // Ensure profile exists/updated with new information
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update({
+          first_name: firstName,
+          last_name: lastName,
+          farm_location: farmLocation,
+        })
+        .eq('id', userId);
+
+      if (profileError) {
+        // If row doesn't exist, try tracking via upsert if possible
+        const { error: upsertError } = await supabase.from('profiles').upsert({
+          id: userId,
+          role: 'farmer', 
+          first_name: firstName,
+          last_name: lastName,
+          farm_location: farmLocation,
+        });
+        if (upsertError) return { error: 'Failed to update profile.' };
+      }
+
+      // Supabase update user to attach Password to OAuth account
+      if (password) {
+        const { error: authError } = await supabase.auth.updateUser({ password });
+        if (authError) return { error: `Profile saved, but password failed: ${authError.message}` };
+      }
+
+      // Refresh profile state
+      await fetchUserRole(userId);
+      return { error: null };
+
+    } catch (e) {
+      return { error: 'An unexpected error occurred during profile completion.' };
+    }
+  }, []);
+
+  /**
    * Control #12: Password Reset with identity verification
    */
   const requestPasswordReset = useCallback(async (email: string): Promise<{ error: string | null }> => {
@@ -375,6 +444,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         session,
         user,
         userRole,
+        userProfile,
         isLoading,
         pendingMFA,
         pendingMFAEmail,
@@ -386,6 +456,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signOut,
         requestPasswordReset,
         signInWithGoogle,
+        completeGoogleProfile,
       }}
     >
       {children}

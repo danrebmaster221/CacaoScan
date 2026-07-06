@@ -51,7 +51,7 @@ const CacaoDarkTheme = {
 };
 
 function RootLayoutNav() {
-  const { session, isLoading, pendingMFA } = useAuth();
+  const { session, isLoading, pendingMFA, userProfile } = useAuth();
   const segments = useSegments();
   const router = useRouter();
 
@@ -59,15 +59,26 @@ function RootLayoutNav() {
     if (isLoading) return;
 
     const inAuthGroup = segments[0] === ('(auth)' as string);
+    const isCompleteProfileRoute = inAuthGroup && segments[1] === 'complete-profile';
 
     if (!session && !inAuthGroup) {
       // Not signed in → redirect to login
       router.replace('/(auth)/login' as any);
-    } else if (session && inAuthGroup && !pendingMFA) {
-      // Signed in and MFA complete → redirect to main tabs
-      router.replace('/(tabs)' as any);
+    } else if (session) {
+      // Check Boot Guard: Are they authenticated but missing profile details?
+      const isMissingProfile = !userProfile?.first_name || !userProfile?.last_name || !userProfile?.farm_location;
+
+      if (isMissingProfile) {
+        // If they are missing profile data, force them to complete-profile screen
+        if (!isCompleteProfileRoute) {
+          router.replace('/(auth)/complete-profile' as any);
+        }
+      } else if (inAuthGroup && !pendingMFA && !isCompleteProfileRoute) {
+        // Signed in, complete profile, and MFA complete → redirect to main tabs
+        router.replace('/(tabs)' as any);
+      }
     }
-  }, [session, isLoading, segments, pendingMFA, router]);
+  }, [session, isLoading, segments, pendingMFA, router, userProfile]);
 
   return (
     <Stack screenOptions={{ headerShown: false }}>

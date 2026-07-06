@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '../services/supabase';
 
 const AuthContext = createContext(undefined);
@@ -8,6 +8,25 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [userRole, setUserRole] = useState('farmer');
   const [isLoading, setIsLoading] = useState(true);
+
+  async function fetchUserRole(userId) {
+    try {
+      console.log('Fetching role for user:', userId);
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', userId)
+        .single();
+      
+      console.log('fetchUserRole response:', { data, error });
+
+      if (error) throw error;
+      setUserRole(data?.role ?? 'farmer');
+    } catch (error) {
+      console.warn('Failed to fetch user role:', error.message);
+      setUserRole('farmer');
+    }
+  }
 
   useEffect(() => {
     // Get initial session
@@ -36,21 +55,7 @@ export function AuthProvider({ children }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  async function fetchUserRole(userId) {
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', userId)
-        .single();
 
-      if (error) throw error;
-      setUserRole(data?.role ?? 'farmer');
-    } catch (e) {
-      console.warn('Failed to fetch user role:', e.message);
-      setUserRole('farmer');
-    }
-  }
 
   const signIn = async (email, password) => {
     try {

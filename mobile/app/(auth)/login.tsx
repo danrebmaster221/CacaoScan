@@ -179,6 +179,8 @@ export default function LoginScreen() {
   const [error, setError] = useState<string | null>(null);
   const [emailFocused, setEmailFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
+  const [showResend, setShowResend] = useState(false);
+  const { resendOTP } = useAuth();
 
   const [isLocked, setIsLocked] = useState(false);
   const [lockoutSeconds, setLockoutSeconds] = useState(0);
@@ -250,10 +252,19 @@ export default function LoginScreen() {
     const result = await signIn(email.trim(), password);
     setLoading(false);
     if (result.error) {
-      setError(result.error);
+      if (result.error.toLowerCase().includes('email not confirmed')) {
+        setError('Your email is not confirmed.');
+        setShowResend(true);
+      } else {
+        setError(result.error);
+        setShowResend(false);
+      }
       await checkLockout();
       return;
     }
+    setShowResend(false);
+
+    // Control #4: MFA required — navigate to OTP screen
     if (result.requiresMFA) {
       router.push({
         pathname: '/(auth)/verify-otp',
@@ -298,10 +309,33 @@ export default function LoginScreen() {
           {error && (
             <Animated.View
               entering={FadeIn.duration(200)}
-              style={[styles.errorBanner, errorStyle]}
+              style={[
+                styles.errorBanner, 
+                errorStyle, 
+                showResend ? { flexDirection: 'column', alignItems: 'stretch', paddingVertical: 14 } : {}
+              ]}
             >
-              <AlertCircleIcon size={14} color={UI.error} accent={UI.error} />
-              <Text style={styles.errorText}>{error}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: S.xs }}>
+                <AlertCircleIcon size={14} color={UI.error} accent={UI.error} />
+                <Text style={styles.errorText}>{error}</Text>
+              </View>
+              {showResend && (
+                <TouchableOpacity 
+                  style={{ marginTop: 12, paddingVertical: 10, backgroundColor: UI.card, borderRadius: PILL }}
+                  onPress={async () => {
+                     const { error: resendErr } = await resendOTP(email.trim());
+                     if (resendErr) {
+                       setError(resendErr);
+                     } else {
+                       router.push({ pathname: '/(auth)/verify-otp', params: { email: email.trim() } } as any);
+                     }
+                  }}
+                >
+                  <Text style={{ color: UI.ctaStart, textAlign: 'center', fontFamily: Typography.fontFamily.semiBold }}>
+                    Resend Verification Code
+                  </Text>
+                </TouchableOpacity>
+              )}
             </Animated.View>
           )}
 

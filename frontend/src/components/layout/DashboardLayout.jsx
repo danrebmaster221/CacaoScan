@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { 
@@ -11,7 +11,11 @@ import {
   BrainCircuit,
   Menu,
   X,
-  User
+  User,
+  Users,
+  Server,
+  Activity,
+  Database
 } from 'lucide-react';
 
 export default function DashboardLayout() {
@@ -21,14 +25,23 @@ export default function DashboardLayout() {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
 
-  const navigation = [
+  const farmerNavigation = [
     { name: 'Dashboard Analytics', href: '/dashboard', icon: BarChart3 },
     { name: 'Batch Management', href: '/dashboard/batches', icon: Archive },
     { name: 'Yield Predictor', href: '/dashboard/predictions', icon: LineChart },
     { name: 'AI Intelligence Hub', href: '/dashboard/mlops', icon: BrainCircuit },
     { name: 'Hardware Config', href: '/dashboard/hardware', icon: Cpu },
-    { name: 'Admin Control', href: '/dashboard/admin', icon: Settings, adminOnly: true },
   ];
+
+  const adminNavigation = [
+    { name: 'Global System Stats', href: '/dashboard/admin', icon: Activity },
+    { name: 'User & Machine Directory', href: '/dashboard/admin/directory', icon: Users },
+    { name: 'Model Deployment', href: '/dashboard/admin/models', icon: Server },
+    { name: 'Data Workbench', href: '/dashboard/admin/workbench', icon: Database },
+    { name: 'System Technical Logs', href: '/dashboard/admin/logs', icon: Settings },
+  ];
+
+  const navigation = userRole === 'admin' ? adminNavigation : farmerNavigation;
 
   return (
     <div className="flex h-screen bg-[#FFF8F0] overflow-hidden font-sans">
