@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, SafeAreaView, ActivityIndicator, Alert } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { supabase } from '@/services/supabase';
 import { Colors, Typography, Spacing, Radius } from '@/constants/theme';
@@ -11,7 +9,6 @@ export default function BatchDrillDownScreen() {
   const { id } = useLocalSearchParams();
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
-  const insets = useSafeAreaInsets();
 
   const [classifications, setClassifications] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -24,12 +21,6 @@ export default function BatchDrillDownScreen() {
   async function fetchClassifications() {
     setLoading(true);
     try {
-      // Prevent PostgreSQL UUID crash if the user clicks a presentation mock session
-      if (typeof id === 'string' && id.startsWith('mock-')) {
-        setClassifications([]);
-        return;
-      }
-
       const { data, error } = await supabase
         .from('classifications')
         .select('*')
@@ -115,13 +106,10 @@ export default function BatchDrillDownScreen() {
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.background, paddingTop: insets.top }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Ionicons name="arrow-back" size={22} color={theme.primary} />
-            <Text style={{ color: theme.primary, fontSize: Typography.fontSize.md, fontFamily: Typography.fontFamily.medium, marginLeft: 4 }}>Back</Text>
-          </View>
+          <Text style={{ color: theme.primary, fontSize: Typography.fontSize.lg }}>{'< '}Back</Text>
         </TouchableOpacity>
         <Text style={[styles.title, { color: theme.text }]}>MLOps Drill-Down</Text>
         <View style={{ width: 60 }} />
@@ -176,7 +164,7 @@ export default function BatchDrillDownScreen() {
           }
         />
       )}
-    </View>
+    </SafeAreaView>
   );
 }
 

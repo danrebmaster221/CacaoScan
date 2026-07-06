@@ -8,19 +8,42 @@ import {
   TouchableOpacity,
   Alert,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import type { ComponentProps } from 'react';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
 import { Colors, Typography, Spacing, Radius, Shadows } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { useESP32Connection } from '@/hooks/use-esp32-connection';
+import { AlertCircleIcon } from '@/components/auth/AuthIcons';
 
 type ServoPosition = 1 | 2 | 3;
+type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
-const SERVO_LABELS: Record<ServoPosition, { label: string; emoji: string; color: string }> = {
-  1: { label: 'Route: Export', emoji: '✅', color: '#4CAF50' },
-  2: { label: 'Route: Drying', emoji: '⚠️', color: '#FFA726' },
-  3: { label: 'Route: Reject', emoji: '❌', color: '#E53935' },
+const SERVO_LABELS: Record<
+  ServoPosition,
+  { label: string; icon: IoniconName; color: string }
+> = {
+  1: { label: 'Route: Export', icon: 'checkmark-circle-outline', color: '#4CAF50' },
+  2: { label: 'Route: Drying', icon: 'alert-circle-outline', color: '#FFA726' },
+  3: { label: 'Route: Reject', icon: 'close-circle-outline', color: '#E53935' },
 };
+
+function SectionHeader({
+  icon,
+  title,
+  theme,
+}: {
+  icon: IoniconName;
+  title: string;
+  theme: typeof Colors.light;
+}) {
+  return (
+    <View style={styles.sectionHeader}>
+      <Ionicons name={icon} size={20} color={theme.primary} />
+      <Text style={[styles.sectionTitle, { color: theme.text }]}>{title}</Text>
+    </View>
+  );
+}
 
 export default function ManualOverrideScreen() {
   const colorScheme = useColorScheme() ?? 'light';
@@ -28,21 +51,8 @@ export default function ManualOverrideScreen() {
   const router = useRouter();
 
   const [currentServoPos, setCurrentServoPos] = useState<ServoPosition | null>(null);
-  const [conveyorSpeed, setConveyorSpeed] = useState(50); // PWM 0-100
-  
-  const { health } = useESP32Connection();
-  const isConnected = health.connected;
-
-  function handleEmergencyStop() {
-    // Highly aggressive zero-delay interrupt logic conceptually lives here
-    setConveyorSpeed(0);
-    setCurrentServoPos(null);
-    Alert.alert(
-      'EMERGENCY STOP INITIATED',
-      'The hardware relay has been killed. Conveyor and actuators are physically halted via hardware lock.',
-      [{ text: 'Acknowledge', style: 'destructive' }]
-    );
-  }
+  const [conveyorSpeed, setConveyorSpeed] = useState(50);
+  const [isConnected] = useState(false);
 
   function handleServoPress(position: ServoPosition) {
     if (!isConnected) {
@@ -50,29 +60,22 @@ export default function ManualOverrideScreen() {
       return;
     }
     setCurrentServoPos(position);
-    // TODO: Send WebSocket command to ESP32
   }
 
   function handleSpeedChange(delta: number) {
-    if (!isConnected) {
-      Alert.alert('Not Connected', 'Connect to the ESP32 before using manual controls.');
-      return;
-    }
     setConveyorSpeed((prev) => Math.max(0, Math.min(100, prev + delta)));
-    // TODO: Send PWM WebSocket command to ESP32
   }
 
-  // Speed warning zone
   const speedWarning = conveyorSpeed > 75;
   const speedDanger = conveyorSpeed > 90;
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollPadding}>
-        {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <Text style={[styles.backText, { color: theme.accent }]}>← Back</Text>
+            <Ionicons name="chevron-back" size={20} color={theme.accent} />
+            <Text style={[styles.backText, { color: theme.accent }]}>Back</Text>
           </TouchableOpacity>
           <Text style={[styles.title, { color: theme.text }]}>Manual Override</Text>
           <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
@@ -80,18 +83,16 @@ export default function ManualOverrideScreen() {
           </Text>
         </View>
 
-        {/* Warning Banner */}
         <Animated.View
           entering={FadeInDown.delay(100)}
           style={[styles.warningBanner, { backgroundColor: theme.warningBg, borderColor: theme.warning }]}
         >
-          <Text style={styles.warningEmoji}>⚠️</Text>
+          <AlertCircleIcon size={18} color={theme.warning} accent={theme.warning} />
           <Text style={[styles.warningText, { color: theme.warning }]}>
             Manual mode overrides the AI sorting. Use only when needed.
           </Text>
         </Animated.View>
 
-        {/* Connection Status */}
         <View style={[styles.connectionCard, { backgroundColor: theme.surface }, Shadows.sm]}>
           <View style={[styles.connDot, { backgroundColor: isConnected ? theme.success : theme.danger }]} />
           <Text style={[styles.connText, { color: theme.text }]}>
@@ -99,26 +100,11 @@ export default function ManualOverrideScreen() {
           </Text>
         </View>
 
-        {/* KILL SWITCH */}
-        <TouchableOpacity
-          style={[styles.killSwitch, Shadows.md]}
-          onPress={handleEmergencyStop}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.killSwitchIcon}>🛑</Text>
-          <Text style={styles.killSwitchText}>EMERGENCY STOP (HALT MACHINE)</Text>
-        </TouchableOpacity>
-
-        {/* Disabling Wrapper for Hardware Controls */}
-        <View style={{ opacity: isConnected ? 1 : 0.4 }} pointerEvents={isConnected ? 'auto' : 'none'}>
-
-        {/* Section: Servo Flipper Control */}
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>🔧 Servo Flipper Control</Text>
+        <SectionHeader icon="construct-outline" title="Servo Flipper Control" theme={theme} />
         <Text style={[styles.sectionSubtitle, { color: theme.textSecondary }]}>
           Manually route beans to a specific output bin
         </Text>
 
-        {/* Visual Servo Diagram */}
         <View style={[styles.servoDiagram, { backgroundColor: theme.surface }, Shadows.md]}>
           <Text style={[styles.diagramTitle, { color: theme.textSecondary }]}>Current Position</Text>
           <View style={styles.diagramRow}>
@@ -139,7 +125,11 @@ export default function ManualOverrideScreen() {
                   onPress={() => handleServoPress(pos)}
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.servoEmoji}>{config.emoji}</Text>
+                  <Ionicons
+                    name={config.icon}
+                    size={28}
+                    color={isActive ? '#FFF8F0' : config.color}
+                  />
                   <Text
                     style={[
                       styles.servoLabel,
@@ -149,7 +139,10 @@ export default function ManualOverrideScreen() {
                     {config.label}
                   </Text>
                   {isActive && (
-                    <Text style={styles.servoActive}>● Active</Text>
+                    <View style={styles.servoActiveRow}>
+                      <View style={styles.servoActiveDot} />
+                      <Text style={styles.servoActive}>Active</Text>
+                    </View>
                   )}
                 </TouchableOpacity>
               );
@@ -157,14 +150,12 @@ export default function ManualOverrideScreen() {
           </View>
         </View>
 
-        {/* Section: Conveyor Speed */}
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>⚡ Conveyor Speed</Text>
+        <SectionHeader icon="speedometer-outline" title="Conveyor Speed" theme={theme} />
         <Text style={[styles.sectionSubtitle, { color: theme.textSecondary }]}>
           Adjust PWM speed of the conveyor belt motor
         </Text>
 
         <View style={[styles.speedCard, { backgroundColor: theme.surface }, Shadows.md]}>
-          {/* Speed Display */}
           <View style={styles.speedDisplay}>
             <Text
               style={[
@@ -183,18 +174,32 @@ export default function ManualOverrideScreen() {
             <Text style={[styles.speedUnit, { color: theme.textSecondary }]}>PWM</Text>
           </View>
 
-          {/* Speed Warning */}
           {speedWarning && (
-            <View style={[styles.speedWarning, { backgroundColor: speedDanger ? theme.dangerBg : theme.warningBg }]}>
-              <Text style={[styles.speedWarningText, { color: speedDanger ? theme.danger : theme.warning }]}>
+            <View
+              style={[
+                styles.speedWarning,
+                { backgroundColor: speedDanger ? theme.dangerBg : theme.warningBg },
+              ]}
+            >
+              <Ionicons
+                name={speedDanger ? 'close-circle-outline' : 'alert-circle-outline'}
+                size={16}
+                color={speedDanger ? theme.danger : theme.warning}
+                style={styles.speedWarningIcon}
+              />
+              <Text
+                style={[
+                  styles.speedWarningText,
+                  { color: speedDanger ? theme.danger : theme.warning },
+                ]}
+              >
                 {speedDanger
-                  ? '🚫 Too fast — camera cannot capture accurately'
-                  : '⚠️ Approaching speed limit for AI detection'}
+                  ? 'Too fast — camera cannot capture accurately'
+                  : 'Approaching speed limit for AI detection'}
               </Text>
             </View>
           )}
 
-          {/* Speed Bar Visualization */}
           <View style={styles.speedBarContainer}>
             <View style={[styles.speedBarBg, { backgroundColor: theme.border }]}>
               <View
@@ -210,7 +215,6 @@ export default function ManualOverrideScreen() {
                   },
                 ]}
               />
-              {/* Warning zone marker */}
               <View style={[styles.speedZoneMarker, { left: '75%', backgroundColor: theme.warning }]} />
               <View style={[styles.speedZoneMarker, { left: '90%', backgroundColor: theme.danger }]} />
             </View>
@@ -222,7 +226,6 @@ export default function ManualOverrideScreen() {
             </View>
           </View>
 
-          {/* Speed Controls */}
           <View style={styles.speedControls}>
             <TouchableOpacity
               style={[styles.speedBtn, { backgroundColor: theme.background, borderColor: theme.border }]}
@@ -251,7 +254,6 @@ export default function ManualOverrideScreen() {
           </View>
         </View>
 
-        {/* Reset Button */}
         <TouchableOpacity
           style={[styles.resetButton, { borderColor: theme.border }]}
           onPress={() => {
@@ -259,11 +261,8 @@ export default function ManualOverrideScreen() {
             setConveyorSpeed(50);
           }}
         >
-          <Text style={[styles.resetText, { color: theme.textSecondary }]}>
-            🔄 Reset Controls
-          </Text>
+          <Text style={[styles.resetText, { color: theme.textSecondary }]}>Reset to Defaults</Text>
         </TouchableOpacity>
-        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -271,16 +270,18 @@ export default function ManualOverrideScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  scrollPadding: { paddingHorizontal: Spacing.md, paddingTop: Spacing.md, paddingBottom: Spacing['2xl'] },
+  scrollPadding: { paddingHorizontal: Spacing.md, paddingBottom: Spacing['2xl'] },
 
-  // Header
   header: { paddingTop: Spacing.xl, paddingBottom: Spacing.md },
-  backButton: { marginBottom: Spacing.sm },
+  backButton: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: Spacing.sm },
   backText: { fontSize: Typography.fontSize.base, fontFamily: Typography.fontFamily.medium },
   title: { fontSize: Typography.fontSize.xl, fontFamily: Typography.fontFamily.bold },
-  subtitle: { fontSize: Typography.fontSize.sm, fontFamily: Typography.fontFamily.regular, marginTop: Spacing.xs },
+  subtitle: {
+    fontSize: Typography.fontSize.sm,
+    fontFamily: Typography.fontFamily.regular,
+    marginTop: Spacing.xs,
+  },
 
-  // Warning Banner
   warningBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -290,10 +291,13 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.md,
     gap: Spacing.sm,
   },
-  warningEmoji: { fontSize: 20 },
-  warningText: { flex: 1, fontSize: Typography.fontSize.sm, fontFamily: Typography.fontFamily.medium, lineHeight: 20 },
+  warningText: {
+    flex: 1,
+    fontSize: Typography.fontSize.sm,
+    fontFamily: Typography.fontFamily.medium,
+    lineHeight: 20,
+  },
 
-  // Connection
   connectionCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -305,33 +309,26 @@ const styles = StyleSheet.create({
   connDot: { width: 10, height: 10, borderRadius: 5 },
   connText: { fontSize: Typography.fontSize.base, fontFamily: Typography.fontFamily.medium },
 
-  // Kill Switch
-  killSwitch: {
-    backgroundColor: '#D32F2F', // Deep aggressive red
+  sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    padding: Spacing.lg,
-    borderRadius: Radius.lg,
-    marginBottom: Spacing.xl,
-    gap: Spacing.sm,
-    borderWidth: 2,
-    borderColor: '#B71C1C',
+    gap: Spacing.xs,
+    marginBottom: 2,
   },
-  killSwitchIcon: { fontSize: 24 },
-  killSwitchText: {
-    color: '#FFF',
-    fontSize: Typography.fontSize.lg,
-    fontFamily: Typography.fontFamily.bold,
+  sectionTitle: { fontSize: Typography.fontSize.md, fontFamily: Typography.fontFamily.semiBold },
+  sectionSubtitle: {
+    fontSize: Typography.fontSize.sm,
+    fontFamily: Typography.fontFamily.regular,
+    marginBottom: Spacing.md,
   },
 
-  // Section
-  sectionTitle: { fontSize: Typography.fontSize.md, fontFamily: Typography.fontFamily.semiBold, marginBottom: 2 },
-  sectionSubtitle: { fontSize: Typography.fontSize.sm, fontFamily: Typography.fontFamily.regular, marginBottom: Spacing.md },
-
-  // Servo
   servoDiagram: { borderRadius: Radius.lg, padding: Spacing.md, marginBottom: Spacing.lg },
-  diagramTitle: { fontSize: Typography.fontSize.sm, fontFamily: Typography.fontFamily.medium, marginBottom: Spacing.md, textAlign: 'center' },
+  diagramTitle: {
+    fontSize: Typography.fontSize.sm,
+    fontFamily: Typography.fontFamily.medium,
+    marginBottom: Spacing.md,
+    textAlign: 'center',
+  },
   diagramRow: { flexDirection: 'row', gap: Spacing.sm },
   servoButton: {
     flex: 1,
@@ -340,17 +337,42 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.xs,
   },
-  servoEmoji: { fontSize: 24 },
-  servoLabel: { fontSize: Typography.fontSize.sm, fontFamily: Typography.fontFamily.semiBold, textAlign: 'center' },
-  servoActive: { color: '#FFF8F0', fontSize: Typography.fontSize.xs, fontFamily: Typography.fontFamily.medium, marginTop: 2 },
+  servoLabel: {
+    fontSize: Typography.fontSize.sm,
+    fontFamily: Typography.fontFamily.semiBold,
+    textAlign: 'center',
+  },
+  servoActiveRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+  servoActiveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#FFF8F0' },
+  servoActive: {
+    color: '#FFF8F0',
+    fontSize: Typography.fontSize.xs,
+    fontFamily: Typography.fontFamily.medium,
+  },
 
-  // Speed
   speedCard: { borderRadius: Radius.lg, padding: Spacing.md, marginBottom: Spacing.md },
-  speedDisplay: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'center', marginBottom: Spacing.md, gap: Spacing.xs },
+  speedDisplay: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'center',
+    marginBottom: Spacing.md,
+    gap: Spacing.xs,
+  },
   speedValue: { fontSize: Typography.fontSize['3xl'], fontFamily: Typography.fontFamily.bold },
   speedUnit: { fontSize: Typography.fontSize.md, fontFamily: Typography.fontFamily.medium },
-  speedWarning: { padding: Spacing.sm, borderRadius: Radius.sm, marginBottom: Spacing.md },
-  speedWarningText: { fontSize: Typography.fontSize.sm, fontFamily: Typography.fontFamily.medium, textAlign: 'center' },
+  speedWarning: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: Spacing.sm,
+    borderRadius: Radius.sm,
+    marginBottom: Spacing.md,
+  },
+  speedWarningIcon: { marginRight: Spacing.xs },
+  speedWarningText: {
+    flex: 1,
+    fontSize: Typography.fontSize.sm,
+    fontFamily: Typography.fontFamily.medium,
+  },
   speedBarContainer: { marginBottom: Spacing.md },
   speedBarBg: { height: 12, borderRadius: 6, overflow: 'hidden', position: 'relative' },
   speedBarFill: { height: 12, borderRadius: 6 },
@@ -368,7 +390,6 @@ const styles = StyleSheet.create({
   },
   speedBtnText: { fontSize: Typography.fontSize.base, fontFamily: Typography.fontFamily.semiBold },
 
-  // Reset
   resetButton: {
     height: 48,
     borderRadius: Radius.md,

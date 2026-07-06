@@ -24,7 +24,7 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { Colors, Typography, Spacing, Radius } from '@/constants/theme';
-
+import { useColorScheme } from '@/hooks/use-color-scheme';
 
 const OTP_LENGTH = 6;
 const OTP_EXPIRY_SECONDS = 300; // 5 minutes
@@ -34,7 +34,8 @@ export default function VerifyOTPScreen() {
   const params = useLocalSearchParams<{ email: string }>();
   const email = params.email || '';
   const { verifyOTP } = useAuth();
-  const theme = Colors.light;
+  const colorScheme = useColorScheme() ?? 'light';
+  const theme = Colors[colorScheme];
 
   const [code, setCode] = useState<string[]>(Array(OTP_LENGTH).fill(''));
   const [loading, setLoading] = useState(false);

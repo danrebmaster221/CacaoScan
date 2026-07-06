@@ -23,16 +23,19 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { Colors, Typography, Spacing, Radius } from '@/constants/theme';
-
+import { useColorScheme } from '@/hooks/use-color-scheme';
 import { isValidEmail, sanitizeInput } from '@/utils/security';
+import { LockIcon, MailIcon, ShieldLockIcon } from '@/components/auth/AuthIcons';
 
 export default function ForgotPasswordScreen() {
   const router = useRouter();
   const { requestPasswordReset } = useAuth();
-  const theme = Colors.light;
+  const colorScheme = useColorScheme() ?? 'light';
+  const theme = Colors[colorScheme];
 
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
@@ -65,11 +68,12 @@ export default function ForgotPasswordScreen() {
       >
         <View style={styles.content}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <Text style={[styles.backText, { color: theme.accent }]}>← Back to Login</Text>
+            <Ionicons name="chevron-back" size={20} color={theme.accent} />
+            <Text style={[styles.backText, { color: theme.accent }]}>Back to Login</Text>
           </TouchableOpacity>
 
-          <View style={styles.iconContainer}>
-            <Text style={styles.icon}>🔑</Text>
+          <View style={[styles.iconContainer, { backgroundColor: theme.surface }]}>
+            <LockIcon size={32} color={theme.primary} />
           </View>
 
           <Text style={[styles.title, { color: theme.text }]}>Reset Password</Text>
@@ -117,7 +121,9 @@ export default function ForgotPasswordScreen() {
           ) : (
             <>
               <View style={[styles.successCard, { backgroundColor: theme.surface }]}>
-                <Text style={styles.successIcon}>✉️</Text>
+                <View style={[styles.successIconWrap, { backgroundColor: theme.background }]}>
+                  <MailIcon size={32} color={theme.primary} />
+                </View>
                 <Text style={[styles.successTitle, { color: theme.text }]}>Check Your Email</Text>
                 <Text style={[styles.successText, { color: theme.textSecondary }]}>
                   If an account exists with that email, we&apos;ve sent a password reset link. The link will expire in 1 hour.
@@ -137,10 +143,18 @@ export default function ForgotPasswordScreen() {
             </>
           )}
 
-          {/* Security Badge */}
-          <View style={[styles.securityBadge, { backgroundColor: theme.surface }]}>
-            <Text style={[styles.securityText, { color: theme.textSecondary }]}>
-              🔒 Secured with TLS encryption • Expiring reset links
+          <View
+            style={[
+              styles.securityBadge,
+              {
+                backgroundColor: theme.successBg,
+                borderColor: colorScheme === 'dark' ? '#2D4A2D' : '#D4E4D6',
+              },
+            ]}
+          >
+            <ShieldLockIcon size={12} color={theme.textSecondary} accent={theme.success} />
+            <Text style={[styles.securityText, { color: theme.success }]}>
+              Secured with TLS encryption
             </Text>
           </View>
         </View>
@@ -153,10 +167,22 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   keyboardView: { flex: 1 },
   content: { flex: 1, paddingHorizontal: Spacing.lg, paddingTop: Spacing.lg },
-  backButton: { marginBottom: Spacing.xl },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: Spacing.xl,
+  },
   backText: { fontSize: Typography.fontSize.base, fontFamily: Typography.fontFamily.medium },
-  iconContainer: { alignItems: 'center', marginBottom: Spacing.md },
-  icon: { fontSize: 56 },
+  iconContainer: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    marginBottom: Spacing.md,
+  },
   title: {
     fontSize: Typography.fontSize.xl,
     fontFamily: Typography.fontFamily.bold,
@@ -203,7 +229,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: Spacing.xl,
   },
-  successIcon: { fontSize: 48, marginBottom: Spacing.md },
+  successIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.md,
+  },
   successTitle: {
     fontSize: Typography.fontSize.lg,
     fontFamily: Typography.fontFamily.semiBold,
@@ -226,9 +259,17 @@ const styles = StyleSheet.create({
     bottom: Spacing.xl,
     left: Spacing.lg,
     right: Spacing.lg,
-    paddingVertical: Spacing.sm,
-    borderRadius: Radius.sm,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.sm,
+    borderRadius: 999,
+    borderWidth: 1,
   },
-  securityText: { fontSize: Typography.fontSize.xs, fontFamily: Typography.fontFamily.regular },
+  securityText: {
+    fontSize: 11,
+    fontFamily: Typography.fontFamily.medium,
+  },
 });

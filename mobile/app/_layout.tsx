@@ -2,6 +2,8 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
+import { StyleSheet } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 import '../global.css';
 
@@ -14,10 +16,9 @@ import {
 } from '@expo-google-fonts/inter';
 import * as SplashScreen from 'expo-splash-screen';
 
-
+import { useColorScheme } from '@/hooks/use-color-scheme';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { Colors } from '@/constants/theme';
-import { ThemeProvider as AppThemeProvider, useThemeContext } from '@/context/ThemeContext';
 
 // Prevent splash screen from auto-hiding
 SplashScreen.preventAutoHideAsync();
@@ -80,19 +81,8 @@ function RootLayoutNav() {
   );
 }
 
-function ThemeConsumer() {
-  const { activeTheme } = useThemeContext();
-  const themeValue = activeTheme === 'dark' ? CacaoDarkTheme : CacaoLightTheme;
-  
-  return (
-    <ThemeProvider value={themeValue}>
-      <RootLayoutNav />
-      <StatusBar style={activeTheme === 'dark' ? 'light' : 'dark'} />
-    </ThemeProvider>
-  );
-}
-
 export default function RootLayout() {
+  const colorScheme = useColorScheme();
 
   const [fontsLoaded] = useFonts({
     Inter_400Regular,
@@ -112,10 +102,17 @@ export default function RootLayout() {
   }
 
   return (
-    <AppThemeProvider>
+    <GestureHandlerRootView style={styles.root}>
       <AuthProvider>
-        <ThemeConsumer />
+        <ThemeProvider value={colorScheme === 'dark' ? CacaoDarkTheme : CacaoLightTheme}>
+          <RootLayoutNav />
+          <StatusBar style="auto" />
+        </ThemeProvider>
       </AuthProvider>
-    </AppThemeProvider>
+    </GestureHandlerRootView>
   );
 }
+
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+});

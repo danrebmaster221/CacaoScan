@@ -4,4 +4,107 @@
     --color-cacao: #3E2723;
     --color-pod: #FFB300;
     --color-gradeA: #4CAF50;
+    --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* Light cacao husk texture — cream base, subtle pod ridges & grain */
+.cacao-light-base {
+    background: linear-gradient(
+        168deg,
+        #fff8f0 0%,
+        #fff5ea 40%,
+        #faf0e6 75%,
+        #fff8f0 100%
+    );
+}
+
+.cacao-light-ridges {
+    opacity: 0.45;
+    background-image: repeating-linear-gradient(
+        94deg,
+        transparent,
+        transparent 11px,
+        rgba(161, 136, 127, 0.07) 11px,
+        rgba(161, 136, 127, 0.07) 12px,
+        transparent 12px,
+        transparent 24px,
+        rgba(109, 76, 65, 0.04) 24px,
+        rgba(109, 76, 65, 0.04) 25px
+    );
+}
+
+.cacao-light-bands {
+    opacity: 0.35;
+    background-image:
+        radial-gradient(ellipse 120% 8px at 50% 18%, rgba(161, 136, 127, 0.09) 0%, transparent 70%),
+        radial-gradient(ellipse 110% 6px at 30% 38%, rgba(161, 136, 127, 0.06) 0%, transparent 70%),
+        radial-gradient(ellipse 100% 7px at 70% 58%, rgba(161, 136, 127, 0.07) 0%, transparent 70%),
+        radial-gradient(ellipse 115% 6px at 40% 78%, rgba(161, 136, 127, 0.05) 0%, transparent 70%),
+        radial-gradient(ellipse 105% 5px at 60% 92%, rgba(161, 136, 127, 0.06) 0%, transparent 70%);
+}
+
+.cacao-light-grain {
+    opacity: 0.5;
+    background-image: radial-gradient(rgba(161, 136, 127, 0.12) 0.6px, transparent 0.6px);
+    background-size: 7px 7px;
+}
+
+.cacao-light-sheen {
+    background: radial-gradient(
+        ellipse 80% 50% at 50% -10%,
+        rgba(255, 183, 77, 0.06) 0%,
+        transparent 55%
+    );
+}
+
+.auth-field:focus {
+    outline: none;
+}
+
+/* CENTRAL — spread letters to match SCAN row width */
+.central-scan-width {
+    width: 13.25rem;
+}
+
+@keyframes strategic-gradient-flow {
+    0% {
+        background-position: 0% 50%;
+    }
+    50% {
+        background-position: 100% 50%;
+    }
+    100% {
+        background-position: 0% 50%;
+    }
+}
+
+.strategic-pill {
+    display: inline-block;
+    border-radius: 9999px;
+    padding: 0.5rem 1.25rem;
+    font-family: 'Montserrat', system-ui, sans-serif;
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: #6d4c41;
+    border: 1px solid rgba(161, 136, 127, 0.3);
+    box-shadow: 0 1px 4px rgba(62, 39, 35, 0.08);
+    background: linear-gradient(
+        90deg,
+        #faf0e6 0%,
+        #fff5ea 20%,
+        #f5e6d3 40%,
+        #ffe8c8 55%,
+        #f5e6d3 72%,
+        #fff5ea 88%,
+        #faf0e6 100%
+    );
+    background-size: 220% 100%;
+    animation: strategic-gradient-flow 5s ease-in-out infinite;
 }

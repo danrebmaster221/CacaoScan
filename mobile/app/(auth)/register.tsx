@@ -28,8 +28,8 @@ import { StepIndicator } from '@/components/StepIndicator';
 export default function RegisterWizardScreen() {
   const { signUp, verifySignupOTP, resendOTP, signInWithGoogle } = useAuth();
   const router = useRouter();
-  // Lock to light mode
-  const theme = Colors.light;
+  const colorScheme = useColorScheme() ?? 'light';
+  const theme = Colors[colorScheme];
 
   // Wizard State
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -218,13 +218,6 @@ export default function RegisterWizardScreen() {
             inactiveColor={theme.border} 
             labels={['Personal Info', 'Credentials', 'Verification']}
           />
-        </View>
-
-        {/* Security Indicator */}
-        <View style={[styles.securityIndicator, { backgroundColor: theme.successBg }]}>
-          <Text style={[styles.securityIndicatorText, { color: theme.success }]}>
-            🔒 Secured with TLS encryption
-          </Text>
         </View>
 
         {/* Global Error Banner */}
@@ -548,19 +541,6 @@ const styles = StyleSheet.create({
     fontSize: Typography.fontSize.sm,
     fontFamily: Typography.fontFamily.regular,
     marginTop: Spacing.xs,
-  },
-
-  // Security Badge
-  securityIndicator: {
-    paddingVertical: Spacing.xs,
-    paddingHorizontal: Spacing.md,
-    borderRadius: Radius.sm,
-    alignItems: 'center',
-    marginBottom: Spacing.lg,
-  },
-  securityIndicatorText: {
-    fontSize: Typography.fontSize.xs,
-    fontFamily: Typography.fontFamily.medium,
   },
 
   formSection: { flex: 1 },

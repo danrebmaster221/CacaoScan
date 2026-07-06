@@ -1,9 +1,9 @@
 -- CacaoScan Database Schema
 -- Run this in Supabase SQL Editor (https://supabase.com/dashboard → SQL Editor)
 
-
+-- ============================================
 -- 1. PROFILES TABLE (for role-based access)
-
+-- ============================================
 CREATE TABLE IF NOT EXISTS profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   first_name TEXT NOT NULL DEFAULT '',
@@ -23,12 +23,6 @@ ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can view own profile"
   ON profiles FOR SELECT
   USING (auth.uid() = id);
-
-CREATE POLICY "Admins can view all profiles"
-  ON profiles FOR SELECT
-  USING (
-    (SELECT role FROM profiles WHERE id = auth.uid()) = 'admin'
-  );
 
 CREATE POLICY "Users can update own profile"
   ON profiles FOR UPDATE
@@ -59,9 +53,9 @@ CREATE OR REPLACE TRIGGER on_auth_user_created
   FOR EACH ROW
   EXECUTE FUNCTION handle_new_user();
 
-
+-- ============================================
 -- 2. BATCHES TABLE (sorting sessions)
-
+-- ============================================
 CREATE TABLE IF NOT EXISTS batches (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -97,12 +91,6 @@ CREATE POLICY "Users can view own batches"
   ON batches FOR SELECT
   USING (auth.uid() = user_id);
 
-CREATE POLICY "Admins can view all batches"
-  ON batches FOR SELECT
-  USING (
-    (SELECT role FROM profiles WHERE id = auth.uid()) = 'admin'
-  );
-
 CREATE POLICY "Users can create own batches"
   ON batches FOR INSERT
   WITH CHECK (auth.uid() = user_id);
@@ -118,9 +106,9 @@ CREATE POLICY "Users can delete own batches"
 -- Enable realtime for live counters
 ALTER PUBLICATION supabase_realtime ADD TABLE batches;
 
-
+-- ============================================
 -- 3. CLASSIFICATIONS TABLE (individual bean results)
-
+-- ============================================
 CREATE TABLE IF NOT EXISTS classifications (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   batch_id UUID NOT NULL REFERENCES batches(id) ON DELETE CASCADE,
@@ -168,9 +156,9 @@ CREATE POLICY "System can insert classifications"
 -- Enable realtime for live classification feed
 ALTER PUBLICATION supabase_realtime ADD TABLE classifications;
 
-
+-- ============================================
 -- 4. MACHINES TABLE (For Autonomy / Hardware validation)
-
+-- ============================================
 CREATE TABLE IF NOT EXISTS machines (
   machine_id TEXT PRIMARY KEY,
   master_pin TEXT NOT NULL,
@@ -181,15 +169,3 @@ CREATE TABLE IF NOT EXISTS machines (
 
 -- Note: In a live DB environment run:
 -- ALTER TABLE profiles ADD CONSTRAINT fk_profiles_machines FOREIGN KEY (linked_machine_id) REFERENCES machines(machine_id);
-
-
--- 5. AI MODELS TABLE (For Model Registry)
-
-CREATE TABLE IF NOT EXISTS ai_models (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  version_tag TEXT NOT NULL, -- e.g. 'v1.0.2'
-  model_url TEXT NOT NULL,   -- Link to the file in Supabase Storage
-  accuracy_score REAL,       -- From your Ryzen 7 training logs
-  is_active BOOLEAN DEFAULT FALSE,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
