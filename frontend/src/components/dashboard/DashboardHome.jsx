@@ -1,11 +1,18 @@
-import { Link } from 'react-router-dom';
+import {
+  PieChart,
+  Pie,
+  Cell,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
+  ResponsiveContainer
+} from 'recharts';
 import { useAuth } from '../../context/AuthContext';
 import {
   BarChart3,
-  Archive,
-  LineChart,
-  BrainCircuit,
-  Cpu,
   TrendingUp,
   Package,
   Sparkles,
@@ -17,11 +24,25 @@ const QUICK_STATS = [
   { label: 'AI Predictions', value: '248', trend: 'Today', icon: Sparkles, color: 'from-[#D97706] to-[#FFB74D]' },
 ];
 
-const MODULE_CARDS = [
-  { name: 'Batch Management', href: '/dashboard/batches', icon: Archive, desc: 'Track fermentation & drying cycles' },
-  { name: 'Yield Predictor', href: '/dashboard/predictions', icon: LineChart, desc: 'Forecast harvest outcomes' },
-  { name: 'AI Intelligence Hub', href: '/dashboard/mlops', icon: BrainCircuit, desc: 'Model feedback & retraining' },
-  { name: 'Hardware Config', href: '/dashboard/hardware', icon: Cpu, desc: 'ESP32 node diagnostics' },
+const VARIETY_DATA = [
+  { name: 'Trinitario', value: 45, color: '#8D6E63' },
+  { name: 'Criollo', value: 30, color: '#FFB74D' },
+  { name: 'Forastero', value: 25, color: '#6D4C41' },
+];
+
+const THROUGHPUT_DATA = [
+  { time: '08:00', throughput: 85 },
+  { time: '10:00', throughput: 92 },
+  { time: '12:00', throughput: 88 },
+  { time: '14:00', throughput: 110 },
+  { time: '16:00', throughput: 105 },
+  { time: '18:00', throughput: 95 },
+];
+
+const ANOMALIES_DATA = [
+  { id: 'LOT-9021', date: 'Oct 14', rejected: '22%', issue: 'High Mold Count' },
+  { id: 'LOT-9014', date: 'Oct 10', rejected: '31%', issue: 'Under-Fermented' },
+  { id: 'LOT-8992', date: 'Oct 02', rejected: '19%', issue: 'Broken Beans' },
 ];
 
 function getGreeting() {
@@ -82,27 +103,95 @@ export default function DashboardHome() {
         ))}
       </div>
 
-      {/* Module shortcut cards. */}
-      <div className="dashboard-fade-in dashboard-stagger-5">
-        <h2 className="mb-4 text-sm font-bold uppercase tracking-wider text-[#A1887F]">Quick Access</h2>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {MODULE_CARDS.map((mod, i) => (
-            <Link
-              key={mod.name}
-              to={mod.href}
-              className={`dashboard-fade-in dashboard-stagger-${i + 6} dashboard-card-hover group flex items-center gap-4 rounded-xl border border-[#A1887F]/10 bg-white p-5 shadow-sm transition-all hover:border-[#FFB74D]/40`}
-            >
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#FAF0E6] transition-colors duration-300 group-hover:bg-[#FFB74D]/20">
-                <mod.icon className="h-6 w-6 text-[#6D4C41] transition-transform duration-300 group-hover:scale-110" />
+      {/* Data Visualization Grid */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {/* Variety Distribution */}
+        <div className="dashboard-fade-in dashboard-stagger-4 dashboard-card-hover rounded-xl border border-[#A1887F]/10 bg-white p-6 shadow-sm">
+          <h2 className="mb-4 text-sm font-bold uppercase tracking-wider text-[#A1887F]">Variety Mix</h2>
+          <div className="h-64 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={VARIETY_DATA}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60}
+                  outerRadius={80}
+                  paddingAngle={5}
+                  dataKey="value"
+                  stroke="none"
+                >
+                  {VARIETY_DATA.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+                </Pie>
+                <RechartsTooltip 
+                  contentStyle={{ borderRadius: '8px', border: '1px solid #E8DFD6', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                  itemStyle={{ color: '#3E2723', fontWeight: '600' }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="mt-2 flex justify-center gap-4">
+            {VARIETY_DATA.map(item => (
+              <div key={item.name} className="flex items-center gap-1.5 text-xs font-semibold text-[#8D6E63]">
+                <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />
+                {item.name}
               </div>
-              <div className="min-w-0 flex-1">
-                <p className="font-semibold text-[#3E2723]">{mod.name}</p>
-                <p className="mt-0.5 truncate text-sm text-[#A1887F]">{mod.desc}</p>
-              </div>
-              <span className="text-[#BCAAA4] opacity-0 transition-all duration-300 group-hover:translate-x-1 group-hover:opacity-100">→</span>
-            </Link>
-          ))}
+            ))}
+          </div>
         </div>
+
+        {/* Throughput Area Chart */}
+        <div className="dashboard-fade-in dashboard-stagger-5 dashboard-card-hover rounded-xl border border-[#A1887F]/10 bg-white p-6 shadow-sm">
+          <h2 className="mb-4 text-sm font-bold uppercase tracking-wider text-[#A1887F]">Daily Throughput (Beans/Min)</h2>
+          <div className="h-64 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={THROUGHPUT_DATA} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorThroughput" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#FFB74D" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#FFB74D" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E8DFD6" />
+                <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#A1887F' }} dy={10} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#A1887F' }} />
+                <RechartsTooltip 
+                  contentStyle={{ borderRadius: '8px', border: '1px solid #E8DFD6', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                />
+                <Area type="monotone" dataKey="throughput" stroke="#FFB74D" strokeWidth={3} fillOpacity={1} fill="url(#colorThroughput)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+
+      {/* Anomalies Table */}
+      <div className="dashboard-fade-in dashboard-stagger-6 dashboard-card-hover rounded-xl border border-[#A1887F]/10 bg-white p-6 shadow-sm">
+         <h2 className="mb-4 text-sm font-bold uppercase tracking-wider text-[#A1887F]">Recent Quality Anomalies</h2>
+         <div className="overflow-x-auto rounded-lg border border-[#A1887F]/10">
+           <table className="w-full text-left text-sm text-[#8D6E63]">
+             <thead className="bg-[#FAF0E6]/50 text-xs uppercase text-[#A1887F]">
+               <tr>
+                 <th className="px-4 py-3 font-semibold">Lot ID</th>
+                 <th className="px-4 py-3 font-semibold">Date processed</th>
+                 <th className="px-4 py-3 font-semibold">Rejected Rate</th>
+                 <th className="px-4 py-3 font-semibold">Primary Issue</th>
+               </tr>
+             </thead>
+             <tbody className="divide-y divide-[#A1887F]/10">
+               {ANOMALIES_DATA.map((row, i) => (
+                 <tr key={i} className="hover:bg-gray-50/50">
+                   <td className="px-4 py-3 font-medium text-[#3E2723]">{row.id}</td>
+                   <td className="px-4 py-3">{row.date}</td>
+                   <td className="px-4 py-3 font-semibold text-[#D84315]">{row.rejected}</td>
+                   <td className="px-4 py-3 text-[#A1887F]">{row.issue}</td>
+                 </tr>
+               ))}
+             </tbody>
+           </table>
+         </div>
       </div>
     </div>
   );

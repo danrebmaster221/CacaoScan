@@ -1,11 +1,12 @@
-import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Login from './pages/Login';
 import DashboardLayout from './components/layout/DashboardLayout';
 import DashboardHome from './components/dashboard/DashboardHome';
-import ModulePlaceholder from './components/dashboard/ModulePlaceholder';
-import { Archive, LineChart, BrainCircuit, Cpu } from 'lucide-react';
+import BatchManagement from './pages/BatchManagement';
+import YieldPredictor from './pages/YieldPredictor';
+import AIIntelligenceHub from './pages/AIIntelligenceHub';
+import HardwareConfig from './pages/HardwareConfig';
 
 import AdminGlobalStats from './pages/admin/AdminGlobalStats';
 import AdminDirectory from './pages/admin/AdminDirectory';
@@ -61,10 +62,10 @@ export default function App() {
           {/* Protected Structural Shell */}
           <Route path="/dashboard" element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>}>
              <Route index element={<DashboardHome />} />
-             <Route path="batches" element={<ModulePlaceholder title="Central Batch Ledger" description="Track fermentation cycles, drying progress, and batch quality metrics across your farm operations." icon={Archive} />} />
-             <Route path="predictions" element={<ModulePlaceholder title="Yield & Logic Predictor" description="AI-powered harvest forecasting and grade prediction models will be available here." icon={LineChart} />} />
-             <Route path="mlops" element={<ModulePlaceholder title="AI Feedback Center" description="Submit model corrections and review retraining pipelines for improved accuracy." icon={BrainCircuit} />} />
-             <Route path="hardware" element={<ModulePlaceholder title="Hardware Diagnostics" description="Monitor ESP32 nodes, camera modules, and edge device connectivity status." icon={Cpu} />} />
+             <Route path="batches" element={<BatchManagement />} />
+             <Route path="predictions" element={<YieldPredictor />} />
+             <Route path="mlops" element={<AIIntelligenceHub />} />
+             <Route path="hardware" element={<HardwareConfig />} />
              
              {/* Admin Paths */}
              <Route path="admin" element={<AdminRoute><AdminGlobalStats /></AdminRoute>} />
