@@ -51,6 +51,14 @@ const AdminRoute = ({ children }) => {
   return children;
 };
 
+const DashboardIndex = () => {
+  const { userRole } = useAuth();
+  if (userRole === 'admin') {
+    return <Navigate to="/dashboard/admin" replace />;
+  }
+  return <DashboardHome />;
+};
+
 export default function App() {
   return (
     <Router>
@@ -61,7 +69,7 @@ export default function App() {
           
           {/* Protected Structural Shell */}
           <Route path="/dashboard" element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>}>
-             <Route index element={<DashboardHome />} />
+             <Route index element={<DashboardIndex />} />
              <Route path="batches" element={<BatchManagement />} />
              <Route path="predictions" element={<YieldPredictor />} />
              <Route path="mlops" element={<AIIntelligenceHub />} />
