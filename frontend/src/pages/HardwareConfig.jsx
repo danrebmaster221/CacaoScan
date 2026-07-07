@@ -13,9 +13,7 @@ import {
 
 /* ── mock data ─────────────────────────────── */
 const MACHINES = [
-  { id: 'MACHINE-A1', ip: 'X-101', status: 'online', rssi: -42, firmware: 'v2.4.1', lastPing: '120ms', uptime: '14d 6h' },
-  { id: 'MACHINE-B2', ip: 'X-102', status: 'online', rssi: -58, firmware: 'v2.4.1', lastPing: '95ms', uptime: '7d 11h' },
-  { id: 'MACHINE-C3', ip: 'X-103', status: 'offline', rssi: 0, firmware: 'v2.3.8', lastPing: '—', uptime: '—' },
+  { id: 'SCANNER-01', ip: 'X-101', status: 'online', rssi: -42, firmware: 'v2.4.1', lastPing: '120ms', uptime: '14d 6h' },
 ];
 
 const CAMERAS = [
