@@ -1,8 +1,8 @@
-/** Light cacao pod husk texture — inspired by mobile, on cream background */
+/** Light cacao pod husk texture for auth screens. */
 
 export function CacaoLightTexture() {
   return (
-    <div className="cacao-light-texture pointer-events-none fixed inset-0 z-0" aria-hidden>
+    <div className="cacao-light-texture pointer-events-none absolute inset-0 z-0" aria-hidden>
       <div className="cacao-light-base absolute inset-0" />
       <div className="cacao-light-ridges absolute inset-0" />
       <div className="cacao-light-bands absolute inset-0" />

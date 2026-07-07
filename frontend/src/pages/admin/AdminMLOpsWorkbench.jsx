@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { DownloadCloud, Tag, CheckSquare, Square, ArchiveRestore } from 'lucide-react';
+import { DownloadCloud, Tag, CheckSquare, Square, ArchiveRestore, BrainCircuit } from 'lucide-react';
 
-// Using solid placeholder images that won't break
+// Card images served from public.
 const DUMMY_ERRORS = [
   { 
     id: 1, 
-    url: 'https://images.unsplash.com/photo-1621508654686-809f23efdabc?w=400&q=80', // Working cacao bean image
+    url: '/CARD1.png',
     pred: 'Forastero', 
     groundTruth: 'Criollo', 
     confidence: 72,
@@ -13,7 +13,7 @@ const DUMMY_ERRORS = [
   },
   { 
     id: 2, 
-    url: 'https://images.unsplash.com/photo-1606716914589-9e8cce91124c?w=400&q=80', 
+    url: '/CARD2.png',
     pred: 'Over-fermented', 
     groundTruth: 'Export Grade', 
     confidence: 81,
@@ -21,7 +21,7 @@ const DUMMY_ERRORS = [
   },
   { 
     id: 3, 
-    url: 'https://images.unsplash.com/photo-1549449339-fc9fe3564e9a?w=400&q=80', 
+    url: '/CARD3.png',
     pred: 'Trinitario', 
     groundTruth: 'Forastero', 
     confidence: 65,
@@ -29,7 +29,7 @@ const DUMMY_ERRORS = [
   },
   { 
     id: 4, 
-    url: 'https://images.unsplash.com/photo-1511381395561-12c5bda2c5df?w=400&q=80', 
+    url: '/CARD4.png',
     pred: 'Under-fermented', 
     groundTruth: 'Slately', 
     confidence: 58,
@@ -100,7 +100,7 @@ export default function AdminMLOpsWorkbench() {
          </button>
       </div>
 
-      {/* Grid */}
+      {/* Flagged records grid. */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 pb-20">
          {items.length === 0 ? (
             <div className="col-span-full py-20 text-center">
@@ -117,7 +117,7 @@ export default function AdminMLOpsWorkbench() {
                    isSelected ? 'border-[#3E2723] ring-4 ring-[#3E2723]/10 transform scale-[1.02]' : 'border-gray-200 hover:border-[#D7CCC8]'
                  }`}
                >
-                  {/* Selection Checkbox (Explicit UI) */}
+                  {/* Card selection checkbox. */}
                   <div className="absolute top-3 left-3 z-10 bg-white rounded-md shadow-sm border border-gray-200 p-0.5">
                     {isSelected ? (
                       <CheckSquare className="w-6 h-6 text-[#3E2723]" />
@@ -133,9 +133,10 @@ export default function AdminMLOpsWorkbench() {
                   />
                   
                   <div className="p-4 bg-white space-y-3">
-                     {/* Added Model Version ID */}
-                     <p className="text-[9px] font-mono text-gray-500 bg-gray-50 px-2 py-1 rounded truncate border border-gray-100" title={err.modelVersion}>
-                       🧠 {err.modelVersion}
+                     {/* Model version label. */}
+                     <p className="flex items-center gap-1.5 text-[9px] font-mono text-gray-500 bg-gray-50 px-2 py-1 rounded border border-gray-100" title={err.modelVersion}>
+                       <BrainCircuit className="h-3 w-3 shrink-0 text-[#6D4C41] opacity-70" />
+                       <span className="truncate">{err.modelVersion}</span>
                      </p>
                      
                      <div className="flex items-center justify-between">
@@ -152,11 +153,11 @@ export default function AdminMLOpsWorkbench() {
                        </div>
                      </div>
 
-                     {/* Resolve Button */}
+                     {/* Resolve and archive button. */}
                      <div className="pt-2">
                        <button
                          onClick={(e) => {
-                           e.stopPropagation(); // Don't trigger the select toggle
+                           e.stopPropagation(); // Keep card from toggling selection.
                            handleResolve(err.id);
                          }}
                          className="w-full flex items-center justify-center gap-1.5 py-2 px-3 text-xs font-bold text-gray-600 bg-gray-50 hover:bg-green-50 hover:text-green-700 rounded-lg border border-gray-200 hover:border-green-300 transition-colors"

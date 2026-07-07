@@ -3,6 +3,9 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Login from './pages/Login';
 import DashboardLayout from './components/layout/DashboardLayout';
+import DashboardHome from './components/dashboard/DashboardHome';
+import ModulePlaceholder from './components/dashboard/ModulePlaceholder';
+import { Archive, LineChart, BrainCircuit, Cpu } from 'lucide-react';
 
 import AdminGlobalStats from './pages/admin/AdminGlobalStats';
 import AdminDirectory from './pages/admin/AdminDirectory';
@@ -10,18 +13,19 @@ import AdminModelDeployment from './pages/admin/AdminModelDeployment';
 import AdminMLOpsWorkbench from './pages/admin/AdminMLOpsWorkbench';
 import AdminTechnicalLogs from './pages/admin/AdminTechnicalLogs';
 
-const ModuleUnderConstruction = ({ title }) => (
-  <div className="p-8 text-center text-gray-500 font-medium border border-dashed rounded-lg bg-gray-50 mt-4">
-    {title}
+const LoadingScreen = () => (
+  <div className="flex min-h-screen flex-col items-center justify-center bg-[#FFF8F0]">
+    <img src="/cacaoscanlogo.png" alt="CacaoScan" className="mb-6 h-auto w-48 animate-pulse object-contain" />
+    <p className="text-sm font-bold tracking-wide text-[#6D4C41]">
+      <span className="dashboard-loading-dots">Verifying security perimeter</span>
+    </p>
   </div>
 );
 
 const ProtectedRoute = ({ children }) => {
   const { session, isLoading } = useAuth();
   
-  if (isLoading) {
-    return <div className="min-h-screen bg-[#FFF8F0] flex items-center justify-center"><p className="text-[#6D4C41] font-bold text-lg animate-pulse">Verifying security perimeter...</p></div>;
-  }
+  if (isLoading) return <LoadingScreen />;
   
   if (!session) {
     return <Navigate to="/login" replace />;
@@ -33,9 +37,7 @@ const ProtectedRoute = ({ children }) => {
 const AdminRoute = ({ children }) => {
   const { session, userRole, isLoading } = useAuth();
   
-  if (isLoading) {
-    return <div className="min-h-screen bg-[#FFF8F0] flex items-center justify-center"><p className="text-[#6D4C41] font-bold text-lg animate-pulse">Verifying security perimeter...</p></div>;
-  }
+  if (isLoading) return <LoadingScreen />;
   
   if (!session) {
     return <Navigate to="/login" replace />;
@@ -58,11 +60,11 @@ export default function App() {
           
           {/* Protected Structural Shell */}
           <Route path="/dashboard" element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>}>
-             <Route index element={<ModuleUnderConstruction title="Analytics Board Initialization..." />} />
-             <Route path="batches" element={<ModuleUnderConstruction title="Central Batch Ledger Pending..." />} />
-             <Route path="predictions" element={<ModuleUnderConstruction title="Yield & Logic Predictor Offline..." />} />
-             <Route path="mlops" element={<ModuleUnderConstruction title="AI Feedback Center Secure..." />} />
-             <Route path="hardware" element={<ModuleUnderConstruction title="Hardware Diagnostics Ready..." />} />
+             <Route index element={<DashboardHome />} />
+             <Route path="batches" element={<ModulePlaceholder title="Central Batch Ledger" description="Track fermentation cycles, drying progress, and batch quality metrics across your farm operations." icon={Archive} />} />
+             <Route path="predictions" element={<ModulePlaceholder title="Yield & Logic Predictor" description="AI-powered harvest forecasting and grade prediction models will be available here." icon={LineChart} />} />
+             <Route path="mlops" element={<ModulePlaceholder title="AI Feedback Center" description="Submit model corrections and review retraining pipelines for improved accuracy." icon={BrainCircuit} />} />
+             <Route path="hardware" element={<ModulePlaceholder title="Hardware Diagnostics" description="Monitor ESP32 nodes, camera modules, and edge device connectivity status." icon={Cpu} />} />
              
              {/* Admin Paths */}
              <Route path="admin" element={<AdminRoute><AdminGlobalStats /></AdminRoute>} />

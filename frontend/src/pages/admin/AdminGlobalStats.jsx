@@ -13,7 +13,7 @@ const DUMMY_LATENCY_DATA = [
 
 export default function AdminGlobalStats() {
   return (
-    <div className="space-y-6">
+    <div className="dashboard-fade-in space-y-6">
       <div className="flex justify-between items-end">
          <div>
             <h1 className="text-2xl font-extrabold text-[#3E2723]">Global System Stats</h1>
@@ -30,7 +30,7 @@ export default function AdminGlobalStats() {
 
       {/* KPI Scorecards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm flex items-center justify-between">
+        <div className="dashboard-card-hover bg-white p-5 rounded-xl border border-[#A1887F]/10 shadow-sm flex items-center justify-between">
           <div>
             <p className="text-xs text-gray-500 font-bold uppercase tracking-wider mb-1">Total Processed</p>
             <p className="text-3xl font-extrabold text-[#3E2723]">1.2M <span className="text-sm text-gray-400 font-normal">beans</span></p>
@@ -40,7 +40,7 @@ export default function AdminGlobalStats() {
           </div>
         </div>
         
-        <div className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm flex items-center justify-between">
+        <div className="dashboard-card-hover bg-white p-5 rounded-xl border border-[#A1887F]/10 shadow-sm flex items-center justify-between">
           <div>
             <p className="text-xs text-gray-500 font-bold uppercase tracking-wider mb-1">Global Accuracy</p>
             <p className="text-3xl font-extrabold text-green-600">89.4%</p>
@@ -50,7 +50,7 @@ export default function AdminGlobalStats() {
           </div>
         </div>
 
-        <div className="bg-white p-5 rounded-xl border border-gray-100 shadow-sm flex items-center justify-between">
+        <div className="dashboard-card-hover bg-white p-5 rounded-xl border border-[#A1887F]/10 shadow-sm flex items-center justify-between">
           <div>
             <p className="text-xs text-gray-500 font-bold uppercase tracking-wider mb-1">Active Nodes</p>
             <p className="text-3xl font-extrabold text-[#3E2723]">42 <span className="text-sm text-gray-400 font-normal">ESP32 units</span></p>

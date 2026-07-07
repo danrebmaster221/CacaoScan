@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { UploadCloud, CheckCircle, RotateCcw, Info } from 'lucide-react';
+import { UploadCloud, CheckCircle, RotateCcw, Info, AlertTriangle } from 'lucide-react';
 import { LineChart, Line, XAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 // Initial version history with Model Task (Dual-Model Pipeline)
@@ -181,10 +181,13 @@ export default function AdminModelDeployment() {
             </div>
             
             {METRICS_DATA.some(m => m.confidence < 80) && (
-              <div className="mt-4 bg-amber-50 rounded-lg p-3 border border-amber-200 text-xs text-amber-800">
-                 ⚠️ Confidence dipped below 80% in <strong>
-                   {METRICS_DATA.filter(m => m.confidence < 80).map(m => m.month).join(', ')}
-                 </strong>. Retraining recommended.
+              <div className="mt-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                 <span>
+                   Confidence dipped below 80% in <strong>
+                     {METRICS_DATA.filter(m => m.confidence < 80).map(m => m.month).join(', ')}
+                   </strong>. Retraining recommended.
+                 </span>
               </div>
             )}
          </div>

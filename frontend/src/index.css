@@ -13,7 +13,7 @@ body {
     -moz-osx-font-smoothing: grayscale;
 }
 
-/* Light cacao husk texture — cream base, subtle pod ridges & grain */
+/* Light cacao husk texture on cream. */
 .cacao-light-base {
     background: linear-gradient(
         168deg,
@@ -67,7 +67,7 @@ body {
     outline: none;
 }
 
-/* CENTRAL — spread letters to match SCAN row width */
+/* CENTRAL letter spread for login logo. */
 .central-scan-width {
     width: 13.25rem;
 }
@@ -107,4 +107,181 @@ body {
     );
     background-size: 220% 100%;
     animation: strategic-gradient-flow 5s ease-in-out infinite;
+}
+
+/* Dashboard UI animations. */
+
+@keyframes dashboard-fade-in-up {
+    from {
+        opacity: 0;
+        transform: translateY(16px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes dashboard-sidebar-slide {
+    from {
+        opacity: 0;
+        transform: translateX(-12px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes dashboard-content-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes dashboard-modal-backdrop-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes dashboard-modal-scale-in {
+    from {
+        opacity: 0;
+        transform: scale(0.95) translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+@keyframes dashboard-icon-float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-4px); }
+}
+
+@keyframes dashboard-letter-pop {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes dashboard-pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.6; transform: scale(0.85); }
+}
+
+@keyframes dashboard-loading-dots {
+    0%, 20% { content: ''; }
+    40% { content: '.'; }
+    60% { content: '..'; }
+    80%, 100% { content: '...'; }
+}
+
+.dashboard-fade-in {
+    animation: dashboard-fade-in-up 0.5s ease-out both;
+}
+
+.dashboard-sidebar-enter {
+    animation: dashboard-sidebar-slide 0.4s ease-out both;
+}
+
+.dashboard-content-enter {
+    animation: dashboard-content-fade 0.35s ease-out 0.1s both;
+}
+
+.dashboard-modal-backdrop {
+    background: rgba(44, 31, 26, 0.55);
+    backdrop-filter: blur(4px);
+    animation: dashboard-modal-backdrop-in 0.2s ease-out both;
+}
+
+.dashboard-modal-content {
+    animation: dashboard-modal-scale-in 0.25s ease-out both;
+}
+
+
+.dashboard-icon-float {
+    animation: dashboard-icon-float 3s ease-in-out infinite;
+}
+
+.dashboard-letter-pop {
+    display: inline-block;
+    animation: dashboard-letter-pop 0.4s ease-out both;
+}
+
+.dashboard-pulse-dot {
+    animation: dashboard-pulse-dot 2s ease-in-out infinite;
+}
+
+.dashboard-loading-dots::after {
+    content: '';
+    animation: dashboard-loading-dots 1.5s steps(1) infinite;
+}
+
+.dashboard-card-hover {
+    transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+}
+
+.dashboard-card-hover:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 28px rgba(62, 39, 35, 0.08);
+}
+
+.dashboard-stagger-1 { animation-delay: 0.05s; }
+.dashboard-stagger-2 { animation-delay: 0.1s; }
+.dashboard-stagger-3 { animation-delay: 0.15s; }
+.dashboard-stagger-4 { animation-delay: 0.2s; }
+.dashboard-stagger-5 { animation-delay: 0.25s; }
+.dashboard-stagger-6 { animation-delay: 0.3s; }
+.dashboard-stagger-7 { animation-delay: 0.35s; }
+.dashboard-stagger-8 { animation-delay: 0.4s; }
+.dashboard-stagger-9 { animation-delay: 0.45s; }
+
+.dashboard-nav-item {
+    animation: dashboard-fade-in-up 0.4s ease-out both;
+}
+
+.dashboard-mobile-menu {
+    overflow: hidden;
+    transition: max-height 0.35s ease, opacity 0.25s ease;
+}
+
+.dashboard-mobile-menu-open {
+    max-height: 600px;
+    opacity: 1;
+}
+
+.dashboard-mobile-menu-closed {
+    max-height: 0;
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* Narrower CENTRAL spread for sidebar. */
+.central-scan-width-sidebar {
+    width: 8.5rem;
+}
+
+/* Dark opaque sidebar background. */
+.dashboard-sidebar {
+    position: relative;
+    z-index: 20;
+    background-color: #0a0605;
+    background-image: linear-gradient(
+        180deg,
+        #16100e 0%,
+        #0f0a09 45%,
+        #080504 100%
+    );
+    box-shadow: 4px 0 28px rgba(0, 0, 0, 0.45);
+}
+
+.dashboard-sidebar-footer {
+    background-color: #060403;
+    border-top: 1px solid #1f1412;
 }
