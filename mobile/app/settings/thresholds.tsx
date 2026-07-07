@@ -6,8 +6,9 @@ import {
   ScrollView,
   Switch,
   TextInput,
+  TouchableOpacity,
 } from 'react-native';
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Colors, Typography, Spacing, Radius, Shadows } from '@/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,6 +29,7 @@ const DEFAULT_PREFS: ThresholdPrefs = {
 };
 
 export default function SmartThresholdsScreen() {
+  const router = useRouter();
   const theme = Colors.light;
   const [prefs, setPrefs] = useState<ThresholdPrefs>(DEFAULT_PREFS);
   const [loaded, setLoaded] = useState(false);
@@ -59,8 +61,14 @@ export default function SmartThresholdsScreen() {
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: theme.background }}>
-      <Stack.Screen options={{ title: 'Smart Thresholds', headerShadowVisible: false }} />
+      <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color={theme.text} />
+            <Text style={[styles.backText, { color: theme.text }]}>Smart Thresholds</Text>
+          </TouchableOpacity>
+        </View>
 
         <Text style={[styles.description, { color: theme.textSecondary }]}>
           Configure automated alert rules. The system will monitor these thresholds and notify you when limits are breached.
@@ -161,7 +169,10 @@ export default function SmartThresholdsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { padding: Spacing.lg },
+  container: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.lg },
+  header: { paddingTop: 64, paddingBottom: Spacing.md },
+  backButton: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: Spacing.sm },
+  backText: { fontSize: Typography.fontSize.lg, fontFamily: Typography.fontFamily.medium },
   description: { fontSize: Typography.fontSize.sm, fontFamily: Typography.fontFamily.medium, marginBottom: Spacing.lg, lineHeight: 20 },
   card: { borderRadius: Radius.lg, padding: Spacing.lg, marginBottom: Spacing.lg },
   cardHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginBottom: Spacing.sm },

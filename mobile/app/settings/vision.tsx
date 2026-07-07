@@ -8,7 +8,7 @@ import {
   ActivityIndicator,
   Image,
 } from 'react-native';
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { Colors, Typography, Spacing, Radius, Shadows } from '@/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/services/supabase';
@@ -24,9 +24,9 @@ interface ROIBox {
 }
 
 const DEFAULT_ROIS: ROIBox[] = [
-  { x: 40, y: 60, w: 80, h: 120 },   // Left pocket
-  { x: 180, y: 60, w: 80, h: 120 },   // Center pocket
-  { x: 320, y: 60, w: 80, h: 120 },   // Right pocket
+  { x: 155, y: 120, w: 140, h: 240 },   // Left pocket
+  { x: 380, y: 120, w: 140, h: 240 },   // Center pocket
+  { x: 605, y: 120, w: 140, h: 240 },   // Right pocket
 ];
 
 const POCKET_LABELS = ['Left', 'Center', 'Right'];
@@ -34,6 +34,7 @@ const NUDGE_STEP = 5;
 const SCALE_STEP = 10;
 
 export default function VisionCalibrationScreen() {
+  const router = useRouter();
   const theme = Colors.light;
   const { user } = useAuth();
   const [connected, setConnected] = useState(false);
@@ -124,8 +125,18 @@ export default function VisionCalibrationScreen() {
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: theme.background }}>
-      <Stack.Screen options={{ title: 'Vision Calibration', headerShadowVisible: false }} />
+      <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color={theme.text} />
+            <Text style={[styles.backText, { color: theme.text }]}>Vision Calibration</Text>
+          </TouchableOpacity>
+        </View>
+
+        <Text style={[styles.description, { color: theme.textSecondary }]}>
+          Calibrate the AI detection zones to precisely match your machine&apos;s physical sorting pockets.
+        </Text>
 
         {/* Connection */}
         <View style={[styles.card, { backgroundColor: theme.surface }, Shadows.sm]}>
@@ -151,9 +162,12 @@ export default function VisionCalibrationScreen() {
             )}
           </View>
           <View style={[styles.previewBox, { backgroundColor: '#1a1a1a', borderColor: theme.border }]}>
-            {frameUri ? (
-              <View style={{ width: '100%', height: '100%' }}>
-                <Image source={{ uri: frameUri }} style={styles.frameImage} resizeMode="contain" />
+            <View style={{ width: '100%', height: '100%' }}>
+              <Image 
+                source={frameUri ? { uri: frameUri } : require('@/assets/images/example_image.jpg')} 
+                style={styles.frameImage} 
+                resizeMode="cover" 
+              />
                 {/* ROI Overlay Boxes */}
                 {rois.map((roi, i) => (
                   <View
@@ -161,13 +175,12 @@ export default function VisionCalibrationScreen() {
                     style={[
                       styles.roiBox,
                       {
-                        left: roi.x * 0.5,
-                        top: roi.y * 0.5,
-                        width: roi.w * 0.5,
-                        height: roi.h * 0.5,
-                        borderColor: i === selectedPocket ? '#00FF00' : '#00FF0080',
+                        left: roi.x,
+                        top: roi.y,
+                        width: roi.w,
+                        height: roi.h,
+                        borderColor: i === selectedPocket ? '#00FF00' : '#00FF0088',
                         borderWidth: i === selectedPocket ? 2 : 1,
-                        backgroundColor: i === selectedPocket ? '#00FF0015' : '#00FF0008',
                       },
                     ]}
                   >
@@ -175,14 +188,6 @@ export default function VisionCalibrationScreen() {
                   </View>
                 ))}
               </View>
-            ) : (
-              <View style={{ alignItems: 'center' }}>
-                <Ionicons name="videocam-off-outline" size={48} color="#666" />
-                <Text style={{ color: '#999', marginTop: Spacing.sm, fontFamily: Typography.fontFamily.medium, fontSize: Typography.fontSize.sm }}>
-                  Connect to scanner to capture frame
-                </Text>
-              </View>
-            )}
           </View>
         </View>
 
@@ -254,7 +259,11 @@ export default function VisionCalibrationScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { padding: Spacing.lg },
+  container: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.lg },
+  header: { paddingTop: 64, paddingBottom: Spacing.md },
+  backButton: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: Spacing.sm },
+  backText: { fontSize: Typography.fontSize.lg, fontFamily: Typography.fontFamily.medium },
+  description: { fontSize: Typography.fontSize.sm, fontFamily: Typography.fontFamily.medium, marginBottom: Spacing.lg, lineHeight: 20 },
   card: { borderRadius: Radius.lg, padding: Spacing.lg, marginBottom: Spacing.lg },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.md },
   cardTitle: { fontSize: Typography.fontSize.md, fontFamily: Typography.fontFamily.semiBold },
@@ -262,7 +271,7 @@ const styles = StyleSheet.create({
   statusText: { fontSize: Typography.fontSize.sm, fontFamily: Typography.fontFamily.medium, flex: 1 },
   connectBtn: { height: 44, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
   connectBtnText: { color: '#FFF8F0', fontFamily: Typography.fontFamily.semiBold, fontSize: Typography.fontSize.sm },
-  previewBox: { height: 220, borderRadius: Radius.md, borderWidth: 1, overflow: 'hidden', position: 'relative', alignItems: 'center', justifyContent: 'center' },
+  previewBox: { aspectRatio: 1024/559, width: '100%', maxWidth: 900, alignSelf: 'center', borderRadius: Radius.md, borderWidth: 1, overflow: 'hidden', position: 'relative', alignItems: 'center', justifyContent: 'center' },
   frameImage: { width: '100%', height: '100%' },
   roiBox: { position: 'absolute', borderStyle: 'solid', borderRadius: 2, alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 2 },
   roiLabel: { color: '#00FF00', fontSize: 9, fontFamily: Typography.fontFamily.bold },

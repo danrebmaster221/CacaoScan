@@ -1,4 +1,5 @@
 import { Stack } from 'expo-router';
+import { Colors, Typography } from '@/constants/theme';
 
 export default function SettingsLayout() {
   return (
@@ -6,13 +7,13 @@ export default function SettingsLayout() {
       screenOptions={{
         headerShown: true,
         headerBackTitle: 'Settings',
-        headerTintColor: '#6B4226',
-        headerStyle: { backgroundColor: '#FFF8F0' },
+        headerTintColor: Colors.light.text,
+        headerStyle: { backgroundColor: Colors.light.background },
         headerTitleStyle: {
-          fontFamily: 'Poppins-SemiBold',
-          fontSize: 18,
+          fontFamily: Typography.fontFamily.semiBold,
+          fontSize: Typography.fontSize.md,
         },
-        contentStyle: { backgroundColor: '#FFF8F0' },
+        contentStyle: { backgroundColor: Colors.light.background },
       }}
     />
   );

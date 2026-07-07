@@ -205,7 +205,7 @@ export default function SettingsScreen() {
           />
           <SettingsItem
             icon="information-circle-outline"
-            label="System Information"
+            label="About CacaoScan"
             subtitle="Version, AI engine, compliance"
             onPress={() => router.push('/settings/about' as any)}
             theme={theme}

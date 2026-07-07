@@ -94,8 +94,14 @@ export default function MachinePairingScreen() {
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: theme.background }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScrollView>
-        <Stack.Screen options={{ title: 'Machine Pairing', headerShadowVisible: false }} />
+        <Stack.Screen options={{ headerShown: false }} />
         <View style={styles.container}>
+          <View style={styles.header}>
+            <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+              <Ionicons name="arrow-back" size={24} color={theme.text} />
+              <Text style={[styles.backText, { color: theme.text }]}>Machine Pairing</Text>
+            </TouchableOpacity>
+          </View>
 
           <Text style={[styles.description, { color: theme.textSecondary }]}>
             Claim ownership of a physical CacaoScan unit. Scan the QR code on the machine or enter the Machine ID and Master PIN manually.
@@ -128,28 +134,27 @@ export default function MachinePairingScreen() {
             </View>
           )}
 
-          {/* QR Scan Button */}
-          <View style={[styles.card, { backgroundColor: theme.surface }, Shadows.sm]}>
-            <TouchableOpacity style={[styles.qrButton, { backgroundColor: theme.primary }]} onPress={() => {/* Camera QR scan — expo-camera integration */}}>
-              <Ionicons name="qr-code-outline" size={28} color="#FFF8F0" />
-              <Text style={styles.qrButtonText}>Scan QR Code</Text>
-            </TouchableOpacity>
-            <Text style={[styles.orText, { color: theme.textSecondary }]}>— or enter manually —</Text>
-          </View>
-
           {/* Manual Entry */}
           <View style={[styles.card, { backgroundColor: theme.surface }, Shadows.sm]}>
-            <Text style={[styles.cardTitle, { color: theme.text }]}>Manual Entry</Text>
+            <Text style={[styles.cardTitle, { color: theme.text }]}>Entry Form</Text>
 
             <View style={styles.inputGroup}>
               <Text style={[styles.label, { color: theme.textSecondary }]}>Machine ID</Text>
-              <TextInput
-                style={[styles.input, { backgroundColor: theme.background, color: theme.text, borderColor: theme.border }]}
-                value={machineId}
-                onChangeText={(t) => setMachineId(t.toUpperCase())}
-                placeholder="e.g. CS-ZAM-001"
-                autoCapitalize="characters"
-              />
+              <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+                <TextInput
+                  style={[styles.input, { flex: 1, backgroundColor: theme.background, color: theme.text, borderColor: theme.border }]}
+                  value={machineId}
+                  onChangeText={(t) => setMachineId(t.toUpperCase())}
+                  placeholder="e.g. CS-ZAM-001"
+                  autoCapitalize="characters"
+                />
+                <TouchableOpacity 
+                  style={[styles.qrSquareBtn, { backgroundColor: theme.primary }]} 
+                  onPress={() => {/* Camera QR scan */}}
+                >
+                  <Ionicons name="qr-code" size={24} color="#FFF8F0" />
+                </TouchableOpacity>
+              </View>
             </View>
 
             <View style={styles.inputGroup}>
@@ -191,8 +196,12 @@ export default function MachinePairingScreen() {
 
 const styles = StyleSheet.create({
   container: {
-    padding: Spacing.lg,
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.lg,
   },
+  header: { paddingTop: 64, paddingBottom: Spacing.md },
+  backButton: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: Spacing.sm },
+  backText: { fontSize: Typography.fontSize.lg, fontFamily: Typography.fontFamily.medium },
   description: {
     fontSize: Typography.fontSize.sm,
     fontFamily: Typography.fontFamily.medium,
@@ -244,24 +253,12 @@ const styles = StyleSheet.create({
     fontFamily: Typography.fontFamily.semiBold,
     fontSize: Typography.fontSize.sm,
   },
-  qrButton: {
-    height: 56,
+  qrSquareBtn: {
+    width: 50,
+    height: 50,
     borderRadius: Radius.md,
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: Spacing.sm,
-  },
-  qrButtonText: {
-    color: '#FFF8F0',
-    fontFamily: Typography.fontFamily.semiBold,
-    fontSize: Typography.fontSize.md,
-  },
-  orText: {
-    textAlign: 'center',
-    marginTop: Spacing.md,
-    fontSize: Typography.fontSize.xs,
-    fontFamily: Typography.fontFamily.medium,
   },
   inputGroup: {
     marginBottom: Spacing.md,

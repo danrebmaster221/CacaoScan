@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, SafeAreaView, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, SafeAreaView, ActivityIndicator, Alert, Platform, StatusBar } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { supabase } from '@/services/supabase';
 import { Colors, Typography, Spacing, Radius } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function BatchDrillDownScreen() {
   const { id } = useLocalSearchParams();
@@ -109,10 +110,9 @@ export default function BatchDrillDownScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Text style={{ color: theme.primary, fontSize: Typography.fontSize.lg }}>{'< '}Back</Text>
+          <Ionicons name="arrow-back" size={24} color={theme.text} />
+          <Text style={styles.backText}>MLOps Drill-Down</Text>
         </TouchableOpacity>
-        <Text style={[styles.title, { color: theme.text }]}>MLOps Drill-Down</Text>
-        <View style={{ width: 60 }} />
       </View>
 
       <View style={styles.descriptionRow}>
@@ -169,10 +169,25 @@ export default function BatchDrillDownScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.md, paddingTop: Spacing.md, paddingBottom: Spacing.sm },
-  backBtn: { padding: Spacing.xs },
-  title: { fontSize: Typography.fontSize.lg, fontFamily: Typography.fontFamily.bold },
+  container: {
+    flex: 1,
+    paddingHorizontal: Spacing.lg,
+  },
+  header: {
+    paddingTop: 64,
+    paddingBottom: Spacing.md,
+  },
+  backBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: Spacing.sm,
+  },
+  backText: {
+    color: Colors.light.text,
+    fontSize: Typography.fontSize.lg,
+    fontFamily: Typography.fontFamily.medium,
+  },
   descriptionRow: { paddingHorizontal: Spacing.md, paddingBottom: Spacing.md },
   filterRow: { flexDirection: 'row', paddingHorizontal: Spacing.md, paddingBottom: Spacing.sm, gap: Spacing.sm },
   filterBtn: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: Radius.full, borderWidth: 1, borderColor: '#D1D5DB' },

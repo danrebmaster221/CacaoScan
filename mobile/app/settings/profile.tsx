@@ -116,8 +116,18 @@ export default function EditProfileScreen() {
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: theme.background }}>
-      <Stack.Screen options={{ title: 'Edit Profile', headerShadowVisible: false }} />
+      <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color={theme.text} />
+            <Text style={[styles.backText, { color: theme.text }]}>Edit Profile</Text>
+          </TouchableOpacity>
+        </View>
+
+        <Text style={[styles.description, { color: theme.textSecondary }]}>
+          Manage your account credentials, update your password, and control your active sessions.
+        </Text>
 
         {error && (
           <View style={[styles.alert, { backgroundColor: theme.dangerBg }]}>  
@@ -223,7 +233,17 @@ export default function EditProfileScreen() {
 
 const styles = StyleSheet.create({
   container: {
-    padding: Spacing.lg,
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.lg,
+  },
+  header: { paddingTop: 64, paddingBottom: Spacing.md },
+  backButton: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: Spacing.sm },
+  backText: { fontSize: Typography.fontSize.lg, fontFamily: Typography.fontFamily.medium },
+  description: {
+    fontSize: Typography.fontSize.sm,
+    fontFamily: Typography.fontFamily.medium,
+    marginBottom: Spacing.lg,
+    lineHeight: 20,
   },
   alert: {
     padding: Spacing.sm,

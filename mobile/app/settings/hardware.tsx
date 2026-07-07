@@ -125,6 +125,9 @@ export default function HardwareMonitorScreen() {
     <ScrollView style={{ flex: 1, backgroundColor: theme.background }}>
       <Stack.Screen options={{ title: 'Hardware Monitor', headerShadowVisible: false }} />
       <View style={styles.container}>
+        <Text style={[styles.description, { color: theme.textSecondary }]}>
+          Monitor real-time network latency, connection stability, and system telemetry of the ESP32 scanner.
+        </Text>
 
         {/* Connection Banner */}
         <View style={[styles.card, { backgroundColor: connected ? theme.successBg : theme.dangerBg, borderColor: connected ? theme.success : theme.danger }, styles.statusBanner]}>
@@ -211,7 +214,15 @@ export default function HardwareMonitorScreen() {
 
 const styles = StyleSheet.create({
   container: {
-    padding: Spacing.lg,
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.lg,
+    paddingTop: 64,
+  },
+  description: {
+    fontSize: Typography.fontSize.sm,
+    fontFamily: Typography.fontFamily.medium,
+    marginBottom: Spacing.lg,
+    lineHeight: 20,
   },
   statusBanner: {
     flexDirection: 'row',

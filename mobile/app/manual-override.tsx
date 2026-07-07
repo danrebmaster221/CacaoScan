@@ -130,22 +130,14 @@ export default function ManualOverrideScreen() {
     }
     setCurrentServoPos(position);
     // Send to ESP32
-    try {
-      fetch(`http://${ESP32_DEFAULT_IP}/servo?pos=${position}`, { signal: AbortSignal.timeout(2000) });
-    } catch {
-      // Silent
-    }
+    fetch(`http://${ESP32_DEFAULT_IP}/servo?pos=${position}`, { signal: AbortSignal.timeout(2000) }).catch(() => {});
   }
 
   function handleSpeedChange(value: number) {
     const speed = Math.round(value);
     setConveyorSpeed(speed);
     // Debounced send to ESP32 via PWM
-    try {
-      fetch(`http://${ESP32_DEFAULT_IP}/conveyor?speed=${speed}`, { signal: AbortSignal.timeout(2000) });
-    } catch {
-      // Silent
-    }
+    fetch(`http://${ESP32_DEFAULT_IP}/conveyor?speed=${speed}`, { signal: AbortSignal.timeout(2000) }).catch(() => {});
   }
 
   const speedWarning = conveyorSpeed > 75;
@@ -156,14 +148,14 @@ export default function ManualOverrideScreen() {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollPadding}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <Ionicons name="chevron-back" size={20} color={theme.accent} />
-            <Text style={[styles.backText, { color: theme.accent }]}>Back</Text>
+            <Ionicons name="arrow-back" size={24} color={theme.text} />
+            <Text style={[styles.backText, { color: theme.text }]}>Manual Override</Text>
           </TouchableOpacity>
-          <Text style={[styles.title, { color: theme.text }]}>Manual Override</Text>
-          <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-            Direct physical control over the sorting machine
-          </Text>
         </View>
+
+        <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
+          Direct physical control over the sorting machine
+        </Text>
 
         {/* Disconnected Banner */}
         {!isConnected && (
@@ -184,22 +176,22 @@ export default function ManualOverrideScreen() {
         <Animated.View entering={FadeInDown.delay(100)}>
           {eStopActive ? (
             <TouchableOpacity
-              style={styles.resumeButton}
+              style={[styles.resumeButton, { paddingVertical: Spacing.md }]}
               onPress={handleResumeOperations}
               activeOpacity={0.85}
             >
-              <Ionicons name="play-circle-outline" size={32} color="#FFF8F0" />
-              <Text style={styles.resumeButtonText}>Resume Operations</Text>
+              <Ionicons name="play-circle-outline" size={28} color="#FFF8F0" />
+              <Text style={[styles.resumeButtonText, { fontSize: Typography.fontSize.md }]}>Resume Operations</Text>
               <Text style={styles.resumeButtonSub}>Conveyor relay is currently HALTED</Text>
             </TouchableOpacity>
           ) : (
             <TouchableOpacity
-              style={styles.eStopButton}
+              style={[styles.eStopButton, { paddingVertical: Spacing.md }]}
               onPress={handleEmergencyStop}
               activeOpacity={0.85}
             >
-              <Ionicons name="hand-left-outline" size={36} color="#FFF8F0" />
-              <Text style={styles.eStopText}>EMERGENCY STOP</Text>
+              <Ionicons name="hand-left-outline" size={32} color="#FFF8F0" />
+              <Text style={[styles.eStopText, { fontSize: Typography.fontSize.lg }]}>EMERGENCY STOP</Text>
               <Text style={styles.eStopSubText}>Kill conveyor relay instantly</Text>
             </TouchableOpacity>
           )}
@@ -379,14 +371,13 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   scrollPadding: { paddingHorizontal: Spacing.md, paddingBottom: Spacing['2xl'] },
 
-  header: { paddingTop: Spacing.xl, paddingBottom: Spacing.md },
+  header: { paddingTop: 64, paddingBottom: Spacing.md },
   backButton: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: Spacing.sm },
-  backText: { fontSize: Typography.fontSize.base, fontFamily: Typography.fontFamily.medium },
-  title: { fontSize: Typography.fontSize.xl, fontFamily: Typography.fontFamily.bold },
+  backText: { fontSize: Typography.fontSize.lg, fontFamily: Typography.fontFamily.medium },
   subtitle: {
     fontSize: Typography.fontSize.sm,
     fontFamily: Typography.fontFamily.regular,
-    marginTop: Spacing.xs,
+    marginBottom: 32,
   },
 
   disconnectedBanner: {
