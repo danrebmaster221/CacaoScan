@@ -12,65 +12,158 @@ import {
 } from 'lucide-react';
 
 /* ── mock data ─────────────────────────────── */
-const BATCHES = Array.from({ length: 18 }, (_, i) => ({
-  id: `BN-${9000 + i}`,
-  date: `2026-10-${String(15 - i).padStart(2, '0')}`,
-  totalBeans: Math.floor(400 + Math.random() * 600),
-  variety: ['Trinitario', 'Criollo', 'Forastero'][i % 3],
-  grade: ['Export A', 'Export B', 'Standard'][i % 3],
-  confidence: Math.floor(75 + Math.random() * 25),
-  pns: i % 4 !== 0,
-  rejected: Math.floor(Math.random() * 35),
-  images: [
-    'https://images.unsplash.com/photo-1606312619070-d48b4c652a52?w=200&h=200&fit=crop',
-    'https://images.unsplash.com/photo-1599599810694-b5b37304c041?w=200&h=200&fit=crop',
-    'https://images.unsplash.com/photo-1610611424854-5e07b4926176?w=200&h=200&fit=crop',
-  ],
-}));
+const BATCHES = Array.from({ length: 18 }, (_, i) => {
+  const rejectedRate = Math.floor(Math.random() * 8) + 1; // 1 to 8%
+  const isCompliant = rejectedRate <= 6;
+  const grade = isCompliant ? (Math.random() > 0.4 ? 'Export A' : 'Export B') : 'Standard';
+  const total = Math.floor(800 + Math.random() * 400);
 
+  return {
+    id: `BN-${9000 + i}`,
+    date: `2026-07-0${7 - (i % 7)}`,
+    totalBeans: total,
+    variety: ['Trinitario', 'Criollo', 'Forastero'][i % 3],
+    grade,
+    confidence: Math.floor(88 + Math.random() * 11), // 88 to 98%
+    pns: isCompliant,
+    rejected: rejectedRate,
+    // Model A Defect Breakdown
+    moldy: Math.floor(total * (rejectedRate * 0.4 / 100)),
+    slaty: Math.floor(total * (rejectedRate * 0.5 / 100)),
+    shriveled: Math.floor(total * (rejectedRate * 0.1 / 100)),
+    // Model B Variety Breakdown (if Trinitario is dominant, small bits of others)
+    varCriollo: Math.floor(Math.random() * 15),
+    varForastero: Math.floor(Math.random() * 25),
+    images: [
+      'https://images.unsplash.com/photo-1606312619070-d48b4c652a52?w=200&h=200&fit=crop',
+      'https://images.unsplash.com/photo-1599599810694-b5b37304c041?w=200&h=200&fit=crop',
+      'https://images.unsplash.com/photo-1610611424854-5e07b4926176?w=200&h=200&fit=crop',
+    ],
+  };
+});
 const PAGE_SIZE = 8;
 
 /* ── PDF generator ─────────────────────────── */
 function downloadCertificate(batch) {
   const doc = new jsPDF();
   const w = doc.internal.pageSize.getWidth();
+  const marginLeft = 20;
 
+  // Header Background
   doc.setFillColor(62, 39, 35);
-  doc.rect(0, 0, w, 44, 'F');
+  doc.rect(0, 0, w, 40, 'F');
+  
+  // Header Text
   doc.setTextColor(255, 252, 248);
-  doc.setFontSize(22);
-  doc.text('CacaoScan Quality Certificate', w / 2, 22, { align: 'center' });
-  doc.setFontSize(10);
-  doc.text(`Generated ${new Date().toLocaleDateString()}`, w / 2, 34, { align: 'center' });
-
+  doc.setFontSize(14);
+  doc.text('CACAOSCAN CENTRAL | FARMS OPERATIONS COMMAND', w / 2, 16, { align: 'center' });
+  doc.setFontSize(18);
+  doc.setFont(undefined, 'bold');
+  doc.text('CACAOSCAN BATCH QUALITY CERTIFICATE', w / 2, 26, { align: 'center' });
+  
+  // Reset text color for body
   doc.setTextColor(62, 39, 35);
-  doc.setFontSize(13);
-  let y = 60;
-  const rows = [
-    ['Batch No.', batch.id],
-    ['Process Date', batch.date],
-    ['Variety', batch.variety],
-    ['Total Beans', String(batch.totalBeans)],
-    ['Grade', batch.grade],
-    ['AI Confidence', `${batch.confidence}%`],
-    ['PNS Compliant', batch.pns ? 'Yes' : 'No'],
-    ['Rejected Rate', `${batch.rejected}%`],
-  ];
+  let y = 55;
 
-  rows.forEach(([label, value]) => {
+  const addSectionHeader = (title) => {
+    doc.setFontSize(12);
     doc.setFont(undefined, 'bold');
-    doc.text(label, 24, y);
-    doc.setFont(undefined, 'normal');
-    doc.text(value, 90, y);
+    doc.setFillColor(240, 235, 230);
+    doc.rect(marginLeft, y - 5, w - (marginLeft * 2), 8, 'F');
+    doc.text(title, marginLeft + 2, y);
     y += 10;
-  });
+  };
 
-  doc.setDrawColor(161, 136, 127);
-  doc.line(24, y + 4, w - 24, y + 4);
-  y += 16;
+  const addLine = (label, value) => {
+    doc.setFontSize(10);
+    doc.setFont(undefined, 'bold');
+    doc.text(label, marginLeft + 2, y);
+    doc.setFont(undefined, 'normal');
+    doc.text(String(value), marginLeft + 60, y);
+    y += 6;
+  };
+
+  // [SECTION 1: BATCH TRACEABILITY]
+  addSectionHeader('[SECTION 1: BATCH TRACEABILITY]');
+  addLine('Batch ID:', batch.id);
+  addLine('Farmer/Owner:', 'CacaoScan Platform Operator');
+  addLine('Farm Location:', 'Boalan, Zamboanga City');
+  addLine('Processing Date:', batch.date);
+  y += 6;
+
+  // [SECTION 2: AI ANALYSIS SUMMARY]
+  addSectionHeader('[SECTION 2: AI ANALYSIS SUMMARY]');
+  addLine('Total Volume:', `${batch.totalBeans} Beans`);
+
+  // Calculate dominant variety %
+  const otherVars = batch.varCriollo + batch.varForastero;
+  const domCount = batch.totalBeans - otherVars;
+  const domPercent = ((domCount / batch.totalBeans) * 100).toFixed(1);
+  
+  addLine('Dominant Variety:', `${batch.variety} (${domPercent}%) | Criollo: ${batch.varCriollo} | Forastero: ${batch.varForastero}`);
+  addLine('Quality Classification:', batch.grade);
+  addLine('PNS/BAFS 58:2019 Status:', batch.pns ? 'COMPLIANT' : 'NON-COMPLIANT');
+  y += 6;
+
+  // [SECTION 3: DETAILED METRICS]
+  addSectionHeader('[SECTION 3: DETAILED METRICS]');
+  y += 2;
+  
+  // Table Header
   doc.setFontSize(9);
-  doc.setTextColor(161, 136, 127);
-  doc.text('This document is auto-generated by CacaoScan Central and does not require a manual signature.', w / 2, y, { align: 'center' });
+  doc.setFont(undefined, 'bold');
+  doc.text('Category', marginLeft + 2, y);
+  doc.text('Percentage', marginLeft + 50, y);
+  doc.text('Count', marginLeft + 90, y);
+  doc.text('AI Confidence', marginLeft + 130, y);
+  doc.line(marginLeft, y + 2, w - marginLeft, y + 2);
+  y += 8;
+
+  // Table Rows (Mocked splits)
+  const rejectedCount = Math.round((batch.rejected / 100) * batch.totalBeans);
+  const acceptedCount = batch.totalBeans - rejectedCount;
+
+  doc.setFont(undefined, 'normal');
+  // Row 1
+  doc.text('Export Grade', marginLeft + 2, y);
+  doc.text(`${100 - batch.rejected}%`, marginLeft + 50, y);
+  doc.text(`${acceptedCount}`, marginLeft + 90, y);
+  doc.text(`${batch.confidence + 1.2}%`, marginLeft + 130, y);
+  y += 6;
+  // Row 2
+  doc.text('Needs Drying', marginLeft + 2, y);
+  doc.text(`0%`, marginLeft + 50, y);
+  doc.text(`0`, marginLeft + 90, y);
+  doc.text(`0%`, marginLeft + 130, y);
+  y += 6;
+  // Row 3
+  doc.text('Rejected', marginLeft + 2, y);
+  doc.text(`${batch.rejected}%`, marginLeft + 50, y);
+  doc.text(`${rejectedCount}`, marginLeft + 90, y);
+  doc.text(`${(batch.confidence - 2.5).toFixed(1)}%`, marginLeft + 130, y);
+  y += 12;
+
+  // [SECTION 4: REJECTION AUDIT]
+  addSectionHeader('[SECTION 4: REJECTION AUDIT (MODEL B)]');
+  doc.setFontSize(10);
+  doc.setFont(undefined, 'normal');
+  doc.text(`• Mold detected: ${batch.moldy} units`, marginLeft + 2, y);
+  y += 6;
+  doc.text(`• Slaty/Unfermented: ${batch.slaty} units`, marginLeft + 2, y);
+  y += 6;
+  doc.text(`• Shriveled/Broken: ${batch.shriveled} units`, marginLeft + 2, y);
+  
+  // [FOOTER]
+  y = 260; // Push to bottom
+  doc.setDrawColor(161, 136, 127);
+  doc.line(marginLeft, y, w - marginLeft, y);
+  y += 6;
+  doc.setFontSize(8);
+  doc.setTextColor(109, 76, 65);
+  
+  const footerText = 'This document is a digital representation of AI-Vision analysis and is compliant with Philippine Cacao Standards. Verifiable via Machine ID: SCANNER-01. Generated: ' + new Date().toLocaleDateString();
+  const splitFooter = doc.splitTextToSize(footerText, w - (marginLeft * 2));
+  doc.text(splitFooter, w / 2, y, { align: 'center' });
 
   doc.save(`CacaoScan_Certificate_${batch.id}.pdf`);
 }
