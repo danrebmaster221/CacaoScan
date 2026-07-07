@@ -95,14 +95,14 @@ export default function AIIntelligenceHub() {
           <input
             type="range"
             min={10}
-            max={95}
+            max={85}
             step={5}
             value={threshold}
             onChange={(e) => setThreshold(Number(e.target.value))}
             className="mt-3 w-full accent-[#6D4C41]"
           />
           <div className="mt-1 flex justify-between text-[10px] text-[#BCAAA4]">
-            <span>Lenient (10%)</span><span>Strict (95%)</span>
+            <span>Lenient (10%)</span><span>Strict (85%)</span>
           </div>
           <p className="mt-2 text-xs text-[#A1887F]">
             Below {threshold}% confidence → flagged for review

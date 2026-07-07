@@ -102,14 +102,18 @@ function AuditGallery({ batch, onClose }) {
 /* ── Main Component ────────────────────────── */
 export default function BatchManagement() {
   const [search, setSearch] = useState('');
+  const [gradeFilter, setGradeFilter] = useState('All');
   const [page, setPage] = useState(0);
   const [auditBatch, setAuditBatch] = useState(null);
 
   const filtered = BATCHES.filter(
-    (b) =>
-      b.id.toLowerCase().includes(search.toLowerCase()) ||
-      b.variety.toLowerCase().includes(search.toLowerCase()) ||
-      b.grade.toLowerCase().includes(search.toLowerCase()),
+    (b) => {
+      const matchesSearch = b.id.toLowerCase().includes(search.toLowerCase()) ||
+                            b.variety.toLowerCase().includes(search.toLowerCase()) ||
+                            b.grade.toLowerCase().includes(search.toLowerCase());
+      const matchesGrade = gradeFilter === 'All' || b.grade === gradeFilter;
+      return matchesSearch && matchesGrade;
+    }
   );
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
@@ -120,15 +124,27 @@ export default function BatchManagement() {
 
       {/* Toolbar */}
       <div className="dashboard-fade-in dashboard-stagger-1 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative max-w-xs flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#A1887F]" />
-          <input
-            type="text"
-            placeholder="Search lot, variety, grade…"
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(0); }}
-            className="w-full rounded-xl border border-[#A1887F]/20 bg-white py-2.5 pl-10 pr-4 text-sm text-[#3E2723] shadow-sm outline-none transition-all placeholder:text-[#BCAAA4] focus:border-[#FFB74D] focus:ring-2 focus:ring-[#FFB74D]/20"
-          />
+        <div className="flex w-full max-w-md flex-col gap-3 sm:flex-row">
+          <div className="relative flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#A1887F]" />
+            <input
+              type="text"
+              placeholder="Search lot, variety, grade…"
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setPage(0); }}
+              className="w-full rounded-xl border border-[#A1887F]/20 bg-white py-2.5 pl-10 pr-4 text-sm text-[#3E2723] shadow-sm outline-none transition-all placeholder:text-[#BCAAA4] focus:border-[#FFB74D] focus:ring-2 focus:ring-[#FFB74D]/20"
+            />
+          </div>
+          <select
+            value={gradeFilter}
+            onChange={(e) => { setGradeFilter(e.target.value); setPage(0); }}
+            className="rounded-xl border border-[#A1887F]/20 bg-white px-4 py-2.5 text-sm text-[#3E2723] shadow-sm outline-none transition-all focus:border-[#FFB74D] focus:ring-2 focus:ring-[#FFB74D]/20"
+          >
+            <option value="All">All Grades</option>
+            <option value="Export A">Export A</option>
+            <option value="Export B">Export B</option>
+            <option value="Standard">Standard</option>
+          </select>
         </div>
         <p className="text-xs font-semibold text-[#A1887F]">{filtered.length} batches</p>
       </div>

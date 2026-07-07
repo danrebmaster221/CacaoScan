@@ -53,6 +53,12 @@ const THROUGHPUT_DATA = {
     { time: 'Apr', throughput: 2100 },
     { time: 'May', throughput: 2050 },
     { time: 'Jun', throughput: 1950 },
+    { time: 'Jul', throughput: 2000 },
+    { time: 'Aug', throughput: 2150 },
+    { time: 'Sep', throughput: 2200 },
+    { time: 'Oct', throughput: 2100 },
+    { time: 'Nov', throughput: 2250 },
+    { time: 'Dec', throughput: 2400 },
   ],
   yearly: [
     { time: '2024', throughput: 22000 },
@@ -64,9 +70,9 @@ const THROUGHPUT_DATA = {
 };
 
 const ANOMALIES_DATA = [
-  { id: 'LOT-9021', date: 'Oct 14', rejected: '22%', issue: 'High Mold Count' },
-  { id: 'LOT-9014', date: 'Oct 10', rejected: '31%', issue: 'Under-Fermented' },
-  { id: 'LOT-8992', date: 'Oct 02', rejected: '19%', issue: 'Broken Beans' },
+  { id: 'BN-9021', date: 'Oct 14', rejected: '22%', issue: 'High Mold Count' },
+  { id: 'BN-9014', date: 'Oct 10', rejected: '31%', issue: 'Under-Fermented' },
+  { id: 'BN-8992', date: 'Oct 02', rejected: '19%', issue: 'Broken Beans' },
 ];
 
 function getGreeting() {
@@ -216,7 +222,7 @@ export default function DashboardHome() {
            <table className="w-full text-left text-sm text-[#8D6E63]">
              <thead className="bg-[#FAF0E6]/50 text-xs uppercase text-[#A1887F]">
                <tr>
-                 <th className="px-4 py-3 font-semibold">Lot ID</th>
+                 <th className="px-4 py-3 font-semibold">Batch No.</th>
                  <th className="px-4 py-3 font-semibold">Date processed</th>
                  <th className="px-4 py-3 font-semibold">Rejected Rate</th>
                  <th className="px-4 py-3 font-semibold">Primary Issue</th>

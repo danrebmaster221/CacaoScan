@@ -40,6 +40,12 @@ const QUALITY_TREND = {
     { batch: 'Apr', grade: 81 },
     { batch: 'May', grade: 84 },
     { batch: 'Jun', grade: 87 },
+    { batch: 'Jul', grade: 85 },
+    { batch: 'Aug', grade: 88 },
+    { batch: 'Sep', grade: 89 },
+    { batch: 'Oct', grade: 86 },
+    { batch: 'Nov', grade: 90 },
+    { batch: 'Dec', grade: 92 },
   ],
   yearly: [
     { batch: '2024', grade: 70 },
