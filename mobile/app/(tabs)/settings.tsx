@@ -158,14 +158,14 @@ export default function SettingsScreen() {
             icon="location-outline"
             label="Farm Location"
             subtitle={farmLocation}
-            onPress={() => {}}
+            onPress={() => router.push('/settings/location' as any)}
             theme={theme}
           />
           <SettingsItem
             icon="person-outline"
             label="Edit Profile"
             subtitle="Name, contact details"
-            onPress={() => {}}
+            onPress={() => router.push('/settings/profile' as any)}
             theme={theme}
           />
         </View>
@@ -183,14 +183,14 @@ export default function SettingsScreen() {
             icon="scan-outline"
             label="Vision Calibration"
             subtitle="Set focal point, camera settings"
-            onPress={() => {}}
+            onPress={() => router.push('/settings/vision' as any)}
             theme={theme}
           />
           <SettingsItem
             icon="hardware-chip-outline"
             label="Hardware Monitor"
             subtitle="ESP32 battery, Wi-Fi signal"
-            onPress={() => {}}
+            onPress={() => router.push('/settings/hardware' as any)}
             theme={theme}
           />
         </View>
@@ -201,14 +201,14 @@ export default function SettingsScreen() {
             icon="notifications-outline"
             label="Notifications"
             subtitle="Push alerts, thresholds"
-            onPress={() => {}}
+            onPress={() => router.push('/settings/notifications' as any)}
             theme={theme}
           />
           <SettingsItem
             icon="information-circle-outline"
             label="About CacaoScan"
             subtitle="Version 1.0.0"
-            onPress={() => {}}
+            onPress={() => router.push('/settings/about' as any)}
             theme={theme}
           />
         </View>
