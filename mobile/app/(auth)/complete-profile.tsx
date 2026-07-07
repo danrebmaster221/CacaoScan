@@ -120,10 +120,19 @@ export default function CompleteProfileScreen() {
     } else {
       if (Platform.OS === 'web') {
         window.alert('Profile completed! You can now log into the mobile app and web dashboard.');
-        router.replace('/(tabs)' as any);
+        setTimeout(() => {
+          router.replace('/(tabs)' as any);
+        }, 150);
       } else {
         Alert.alert('Success', 'Profile completed! You can now log into the mobile app and web dashboard.', [
-          { text: 'Continue', onPress: () => router.replace('/(tabs)' as any) }
+          { 
+            text: 'Continue', 
+            onPress: () => {
+              setTimeout(() => {
+                router.replace('/(tabs)' as any);
+              }, 150);
+            } 
+          }
         ]);
       }
     }
