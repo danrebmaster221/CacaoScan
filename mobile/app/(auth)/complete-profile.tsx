@@ -118,9 +118,14 @@ export default function CompleteProfileScreen() {
     if (completeError) {
       setError(completeError);
     } else {
-      Alert.alert('Success', 'Profile completed! You can now log into the mobile app and web dashboard.', [
-        { text: 'Continue', onPress: () => router.replace('/(tabs)' as any) }
-      ]);
+      if (Platform.OS === 'web') {
+        window.alert('Profile completed! You can now log into the mobile app and web dashboard.');
+        router.replace('/(tabs)' as any);
+      } else {
+        Alert.alert('Success', 'Profile completed! You can now log into the mobile app and web dashboard.', [
+          { text: 'Continue', onPress: () => router.replace('/(tabs)' as any) }
+        ]);
+      }
     }
   };
 

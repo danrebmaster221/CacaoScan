@@ -396,7 +396,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Supabase update user to attach Password to OAuth account
       if (password) {
         const { error: authError } = await supabase.auth.updateUser({ password });
-        if (authError) return { error: `Profile saved, but password failed: ${authError.message}` };
+        if (authError) {
+          // If the user tries to set the same password they already have, Supabase throws an error.
+          // In a "Complete Profile" flow, we can just treat this as a success since the goal is achieved.
+          if (authError.message.includes('different from the old password') || authError.message.includes('same password')) {
+             console.log('User entered existing password; treating as success.');
+          } else {
+             return { error: `Profile saved, but password failed: ${authError.message}` };
+          }
+        }
       }
 
       // Refresh profile state
