@@ -372,26 +372,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const userId = currentSession.user.id;
 
       // Ensure profile exists/updated with new information
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .update({
-          first_name: firstName,
-          last_name: lastName,
-          farm_location: farmLocation,
-        })
-        .eq('id', userId);
+      const { error: upsertError } = await supabase.from('profiles').upsert({
+        id: userId,
+        role: 'farmer', 
+        first_name: firstName,
+        last_name: lastName,
+        farm_location: farmLocation,
+      }, { onConflict: 'id' });
 
-      if (profileError) {
-        // If row doesn't exist, try tracking via upsert if possible
-        const { error: upsertError } = await supabase.from('profiles').upsert({
-          id: userId,
-          role: 'farmer', 
-          first_name: firstName,
-          last_name: lastName,
-          farm_location: farmLocation,
-        });
-        if (upsertError) return { error: 'Failed to update profile.' };
-      }
+      if (upsertError) return { error: 'Failed to update profile.' };
 
       // Supabase update user to attach Password to OAuth account
       if (password) {
