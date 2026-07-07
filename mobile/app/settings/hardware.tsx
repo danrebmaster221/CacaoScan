@@ -6,19 +6,23 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  Dimensions,
 } from 'react-native';
 import { Stack } from 'expo-router';
 import { Colors, Typography, Spacing, Radius, Shadows } from '@/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 
 const ESP32_DEFAULT_IP = '192.168.4.1';
-const POLL_INTERVAL = 5000; // 5 seconds
+const POLL_INTERVAL = 3000;
+const CHART_POINTS = 60; // 5 minutes at 5s intervals
 
 interface TelemetryData {
   rssi: number;
   uptime: number;
   freeHeap: number;
   firmware: string;
+  edgeLatency?: number;
+  cloudRtt?: number;
 }
 
 export default function HardwareMonitorScreen() {
@@ -26,24 +30,33 @@ export default function HardwareMonitorScreen() {
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(false);
   const [telemetry, setTelemetry] = useState<TelemetryData | null>(null);
-  const [otaStatus, setOtaStatus] = useState<string | null>(null);
+  const [stabilityData, setStabilityData] = useState<number[]>(new Array(CHART_POINTS).fill(0));
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchTelemetry = async () => {
+    const start = Date.now();
     try {
       const res = await fetch(`http://${ESP32_DEFAULT_IP}/telemetry`, { signal: AbortSignal.timeout(3000) });
+      const latency = Date.now() - start;
       if (res.ok) {
         const data = await res.json();
-        setTelemetry(data);
+        setTelemetry({ ...data, edgeLatency: latency });
         setConnected(true);
+        setStabilityData(prev => {
+          const next = [...prev.slice(1), data.rssi ? Math.min(100, Math.max(0, 100 + data.rssi)) : 0];
+          return next;
+        });
       } else {
-        setConnected(false);
-        setTelemetry(null);
+        handleDisconnect();
       }
     } catch {
-      setConnected(false);
-      setTelemetry(null);
+      handleDisconnect();
     }
+  };
+
+  const handleDisconnect = () => {
+    setConnected(false);
+    setStabilityData(prev => [...prev.slice(1), 0]);
   };
 
   const handleConnect = async () => {
@@ -61,11 +74,11 @@ export default function HardwareMonitorScreen() {
     };
   }, [connected]);
 
-  const getRssiLabel = (rssi: number) => {
-    if (rssi >= -50) return { label: 'Excellent', color: theme.success };
-    if (rssi >= -60) return { label: 'Good', color: theme.success };
-    if (rssi >= -70) return { label: 'Fair', color: theme.warning };
-    return { label: 'Weak', color: theme.danger };
+  const getRssiInfo = (rssi: number) => {
+    if (rssi >= -50) return { label: 'Excellent', color: theme.success, icon: 'wifi' as const };
+    if (rssi >= -60) return { label: 'Good', color: theme.success, icon: 'wifi' as const };
+    if (rssi >= -70) return { label: 'Fair', color: theme.warning, icon: 'wifi' as const };
+    return { label: 'Weak', color: theme.danger, icon: 'wifi' as const };
   };
 
   const formatUptime = (seconds: number) => {
@@ -75,9 +88,37 @@ export default function HardwareMonitorScreen() {
     return `${h}h ${m}m ${s}s`;
   };
 
-  const handleCheckOta = () => {
-    setOtaStatus('Your firmware is up to date.');
-    setTimeout(() => setOtaStatus(null), 4000);
+  const screenWidth = Dimensions.get('window').width - Spacing.lg * 2 - Spacing.lg * 2;
+
+  // Mini sparkline renderer
+  const renderStabilityChart = () => {
+    const max = 100;
+    const chartH = 80;
+    const barW = Math.max(1, screenWidth / CHART_POINTS);
+
+    return (
+      <View style={[styles.chartContainer, { height: chartH }]}>
+        <View style={styles.chartBars}>
+          {stabilityData.map((val, i) => (
+            <View
+              key={i}
+              style={[
+                styles.chartBar,
+                {
+                  width: barW - 1,
+                  height: Math.max(1, (val / max) * chartH),
+                  backgroundColor: val === 0 ? theme.danger + '40' : val > 60 ? theme.success : val > 30 ? theme.warning : theme.danger,
+                },
+              ]}
+            />
+          ))}
+        </View>
+        <View style={styles.chartLabels}>
+          <Text style={[styles.chartLabel, { color: theme.textSecondary }]}>5m ago</Text>
+          <Text style={[styles.chartLabel, { color: theme.textSecondary }]}>now</Text>
+        </View>
+      </View>
+    );
   };
 
   return (
@@ -85,74 +126,84 @@ export default function HardwareMonitorScreen() {
       <Stack.Screen options={{ title: 'Hardware Monitor', headerShadowVisible: false }} />
       <View style={styles.container}>
 
-        {/* Connection */}
-        <View style={[styles.card, { backgroundColor: theme.surface }, Shadows.sm]}>
-          <View style={styles.statusRow}>
-            <Ionicons name={connected ? 'wifi' : 'wifi-outline'} size={24} color={connected ? theme.success : theme.textSecondary} />
-            <Text style={[styles.statusText, { color: theme.text }]}>
-              {connected ? 'Connected to Scanner' : 'Not connected'}
-            </Text>
-          </View>
-          {!connected && (
-            <TouchableOpacity style={[styles.connectBtn, { backgroundColor: theme.primary }]} onPress={handleConnect} disabled={loading}>
-              {loading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.connectBtnText}>Connect</Text>}
-            </TouchableOpacity>
-          )}
+        {/* Connection Banner */}
+        <View style={[styles.card, { backgroundColor: connected ? theme.successBg : theme.dangerBg, borderColor: connected ? theme.success : theme.danger }, styles.statusBanner]}>
+          <Ionicons name={connected ? 'wifi' : 'cloud-offline-outline'} size={24} color={connected ? theme.success : theme.danger} />
+          <Text style={[styles.statusText, { color: connected ? theme.success : theme.danger }]}>
+            {connected ? 'Online — Scanner Connected' : 'Connection Lost — Scanner Offline'}
+          </Text>
         </View>
 
-        {/* Telemetry Cards */}
-        {connected && telemetry ? (
-          <>
-            <View style={styles.telemetryGrid}>
-              <View style={[styles.telemetryCard, { backgroundColor: theme.surface }, Shadows.sm]}>
-                <Ionicons name="wifi" size={28} color={getRssiLabel(telemetry.rssi).color} />
-                <Text style={[styles.telemetryValue, { color: theme.text }]}>{telemetry.rssi} dBm</Text>
-                <Text style={[styles.telemetryLabel, { color: getRssiLabel(telemetry.rssi).color }]}>
-                  Wi-Fi: {getRssiLabel(telemetry.rssi).label}
-                </Text>
-              </View>
-              <View style={[styles.telemetryCard, { backgroundColor: theme.surface }, Shadows.sm]}>
-                <Ionicons name="time-outline" size={28} color={theme.primary} />
-                <Text style={[styles.telemetryValue, { color: theme.text }]}>{formatUptime(telemetry.uptime)}</Text>
-                <Text style={[styles.telemetryLabel, { color: theme.textSecondary }]}>Uptime</Text>
-              </View>
-            </View>
+        {!connected && (
+          <TouchableOpacity style={[styles.connectBtn, { backgroundColor: theme.primary }]} onPress={handleConnect} disabled={loading}>
+            {loading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.connectBtnText}>Connect to Scanner</Text>}
+          </TouchableOpacity>
+        )}
 
-            <View style={styles.telemetryGrid}>
-              <View style={[styles.telemetryCard, { backgroundColor: theme.surface }, Shadows.sm]}>
-                <Ionicons name="server-outline" size={28} color={theme.info} />
-                <Text style={[styles.telemetryValue, { color: theme.text }]}>{(telemetry.freeHeap / 1024).toFixed(0)} KB</Text>
-                <Text style={[styles.telemetryLabel, { color: theme.textSecondary }]}>Free Memory</Text>
-              </View>
-              <View style={[styles.telemetryCard, { backgroundColor: theme.surface }, Shadows.sm]}>
-                <Ionicons name="code-slash-outline" size={28} color={theme.primary} />
-                <Text style={[styles.telemetryValue, { color: theme.text }]}>{telemetry.firmware}</Text>
-                <Text style={[styles.telemetryLabel, { color: theme.textSecondary }]}>Firmware</Text>
-              </View>
-            </View>
+        {/* Latency Metrics */}
+        <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>LATENCY METRICS</Text>
+        <View style={styles.metricsGrid}>
+          <View style={[styles.metricCard, { backgroundColor: theme.surface }, Shadows.sm]}>
+            <Ionicons name="flash-outline" size={24} color={theme.primary} />
+            <Text style={[styles.metricValue, { color: theme.text }]}>
+              {connected && telemetry?.edgeLatency ? `${telemetry.edgeLatency}ms` : '—'}
+            </Text>
+            <Text style={[styles.metricLabel, { color: theme.textSecondary }]}>Edge Latency</Text>
+          </View>
+          <View style={[styles.metricCard, { backgroundColor: theme.surface }, Shadows.sm]}>
+            <Ionicons name="globe-outline" size={24} color={theme.info} />
+            <Text style={[styles.metricValue, { color: theme.text }]}>
+              {connected && telemetry?.cloudRtt ? `${telemetry.cloudRtt}ms` : '—'}
+            </Text>
+            <Text style={[styles.metricLabel, { color: theme.textSecondary }]}>Cloud RTT</Text>
+          </View>
+          <View style={[styles.metricCard, { backgroundColor: theme.surface }, Shadows.sm]}>
+            <Ionicons name="wifi" size={24} color={connected && telemetry ? getRssiInfo(telemetry.rssi).color : theme.textSecondary} />
+            <Text style={[styles.metricValue, { color: theme.text }]}>
+              {connected && telemetry ? `${telemetry.rssi} dBm` : '—'}
+            </Text>
+            <Text style={[styles.metricLabel, { color: connected && telemetry ? getRssiInfo(telemetry.rssi).color : theme.textSecondary }]}>
+              Wi-Fi: {connected && telemetry ? getRssiInfo(telemetry.rssi).label : 'N/A'}
+            </Text>
+          </View>
+        </View>
 
-            {/* OTA Section */}
-            <View style={[styles.card, { backgroundColor: theme.surface }, Shadows.sm]}>
-              <Text style={[styles.cardTitle, { color: theme.text }]}>Firmware Updates</Text>
-              <TouchableOpacity style={[styles.otaBtn, { borderColor: theme.primary }]} onPress={handleCheckOta}>
-                <Ionicons name="cloud-download-outline" size={20} color={theme.primary} />
-                <Text style={[styles.otaBtnText, { color: theme.primary }]}>Check for OTA Updates</Text>
-              </TouchableOpacity>
-              {otaStatus && (
-                <Text style={[styles.otaStatus, { color: theme.success }]}>{otaStatus}</Text>
-              )}
+        {/* Stability Chart */}
+        <View style={[styles.card, { backgroundColor: theme.surface }, Shadows.sm]}>
+          <Text style={[styles.cardTitle, { color: theme.text }]}>Connection Stability</Text>
+          <Text style={[styles.cardSubtitle, { color: theme.textSecondary }]}>Signal quality over the last 5 minutes</Text>
+          {renderStabilityChart()}
+        </View>
+
+        {/* System Info */}
+        {connected && telemetry && (
+          <View style={[styles.card, { backgroundColor: theme.surface }, Shadows.sm]}>
+            <Text style={[styles.cardTitle, { color: theme.text }]}>System Details</Text>
+            <View style={[styles.infoRow, { borderBottomColor: theme.border }]}>
+              <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>Uptime</Text>
+              <Text style={[styles.infoValue, { color: theme.text }]}>{formatUptime(telemetry.uptime)}</Text>
             </View>
-          </>
-        ) : !connected ? (
+            <View style={[styles.infoRow, { borderBottomColor: theme.border }]}>
+              <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>Free Memory</Text>
+              <Text style={[styles.infoValue, { color: theme.text }]}>{(telemetry.freeHeap / 1024).toFixed(0)} KB</Text>
+            </View>
+            <View style={styles.infoRow}>
+              <Text style={[styles.infoLabel, { color: theme.textSecondary }]}>Firmware</Text>
+              <Text style={[styles.infoValue, { color: theme.text }]}>{telemetry.firmware}</Text>
+            </View>
+          </View>
+        )}
+
+        {!connected && (
           <View style={[styles.card, { backgroundColor: theme.surface }, Shadows.sm]}>
             <View style={{ alignItems: 'center', padding: Spacing.xl }}>
               <Ionicons name="hardware-chip-outline" size={48} color={theme.textSecondary} />
               <Text style={{ color: theme.textSecondary, marginTop: Spacing.md, fontFamily: Typography.fontFamily.medium, fontSize: Typography.fontSize.sm, textAlign: 'center' }}>
-                Connect your phone to the scanner&apos;s Wi-Fi hotspot to view hardware telemetry.
+                Connect your phone to the scanner&apos;s Wi-Fi hotspot (CacaoScan-AP) to view hardware telemetry.
               </Text>
             </View>
           </View>
-        ) : null}
+        )}
       </View>
     </ScrollView>
   );
@@ -162,6 +213,61 @@ const styles = StyleSheet.create({
   container: {
     padding: Spacing.lg,
   },
+  statusBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    borderWidth: 1,
+    borderRadius: Radius.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+  },
+  statusText: {
+    fontSize: Typography.fontSize.sm,
+    fontFamily: Typography.fontFamily.semiBold,
+    flex: 1,
+  },
+  connectBtn: {
+    height: 48,
+    borderRadius: Radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.lg,
+  },
+  connectBtnText: {
+    color: '#FFF8F0',
+    fontFamily: Typography.fontFamily.semiBold,
+    fontSize: Typography.fontSize.sm,
+  },
+  sectionLabel: {
+    fontSize: Typography.fontSize.xs,
+    fontFamily: Typography.fontFamily.semiBold,
+    letterSpacing: 1,
+    marginBottom: Spacing.sm,
+    marginTop: Spacing.sm,
+  },
+  metricsGrid: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginBottom: Spacing.lg,
+  },
+  metricCard: {
+    flex: 1,
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
+    alignItems: 'center',
+    gap: Spacing.xs,
+  },
+  metricValue: {
+    fontSize: Typography.fontSize.md,
+    fontFamily: Typography.fontFamily.bold,
+    marginTop: Spacing.xs,
+  },
+  metricLabel: {
+    fontSize: 10,
+    fontFamily: Typography.fontFamily.medium,
+    textAlign: 'center',
+  },
   card: {
     borderRadius: Radius.lg,
     padding: Spacing.lg,
@@ -170,68 +276,47 @@ const styles = StyleSheet.create({
   cardTitle: {
     fontSize: Typography.fontSize.md,
     fontFamily: Typography.fontFamily.semiBold,
+    marginBottom: 4,
+  },
+  cardSubtitle: {
+    fontSize: Typography.fontSize.xs,
+    fontFamily: Typography.fontFamily.regular,
     marginBottom: Spacing.md,
   },
-  statusRow: {
+  chartContainer: {
+    overflow: 'hidden',
+  },
+  chartBars: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    marginBottom: Spacing.md,
-  },
-  statusText: {
-    fontSize: Typography.fontSize.sm,
-    fontFamily: Typography.fontFamily.medium,
+    alignItems: 'flex-end',
     flex: 1,
   },
-  connectBtn: {
-    height: 44,
-    borderRadius: Radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
+  chartBar: {
+    marginHorizontal: 0.5,
+    borderRadius: 1,
   },
-  connectBtnText: {
-    color: '#FFF8F0',
-    fontFamily: Typography.fontFamily.semiBold,
-    fontSize: Typography.fontSize.sm,
-  },
-  telemetryGrid: {
+  chartLabels: {
     flexDirection: 'row',
-    gap: Spacing.md,
-    marginBottom: Spacing.md,
-  },
-  telemetryCard: {
-    flex: 1,
-    borderRadius: Radius.lg,
-    padding: Spacing.lg,
-    alignItems: 'center',
-    gap: Spacing.xs,
-  },
-  telemetryValue: {
-    fontSize: Typography.fontSize.lg,
-    fontFamily: Typography.fontFamily.bold,
+    justifyContent: 'space-between',
     marginTop: Spacing.xs,
   },
-  telemetryLabel: {
-    fontSize: Typography.fontSize.xs,
+  chartLabel: {
+    fontSize: 10,
     fontFamily: Typography.fontFamily.medium,
   },
-  otaBtn: {
+  infoRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.sm,
-    height: 44,
-    borderRadius: Radius.md,
-    borderWidth: 1.5,
+    paddingVertical: Spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  otaBtnText: {
-    fontFamily: Typography.fontFamily.semiBold,
+  infoLabel: {
     fontSize: Typography.fontSize.sm,
-  },
-  otaStatus: {
-    marginTop: Spacing.md,
-    textAlign: 'center',
     fontFamily: Typography.fontFamily.medium,
+  },
+  infoValue: {
     fontSize: Typography.fontSize.sm,
+    fontFamily: Typography.fontFamily.semiBold,
   },
 });

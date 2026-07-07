@@ -105,8 +105,7 @@ export default function SettingsScreen() {
   const router = useRouter();
   const [showSignOutModal, setShowSignOutModal] = useState(false);
 
-  const displayName = user?.user_metadata?.full_name || 'Farmer';
-  const farmLocation = user?.user_metadata?.farm_location || 'Not set';
+  const displayName = user?.user_metadata?.full_name || user?.user_metadata?.first_name || 'Farmer';
 
   async function handleSignOutConfirm() {
     setShowSignOutModal(false);
@@ -152,62 +151,62 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>FARM</Text>
+        <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>ACCOUNT & ONBOARDING</Text>
         <View style={[styles.settingsGroup, { backgroundColor: theme.surface }, Shadows.sm]}>
-          <SettingsItem
-            icon="location-outline"
-            label="Farm Location"
-            subtitle={farmLocation}
-            onPress={() => router.push('/settings/location' as any)}
-            theme={theme}
-          />
           <SettingsItem
             icon="person-outline"
             label="Edit Profile"
-            subtitle="Name, contact details"
+            subtitle="Credentials, password, security"
             onPress={() => router.push('/settings/profile' as any)}
+            theme={theme}
+          />
+          <SettingsItem
+            icon="qr-code-outline"
+            label="Machine Pairing"
+            subtitle="Claim ownership of a physical unit"
+            onPress={() => router.push('/settings/pairing' as any)}
             theme={theme}
           />
         </View>
 
-        <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>MACHINE</Text>
+        <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>MACHINE GOVERNANCE</Text>
         <View style={[styles.settingsGroup, { backgroundColor: theme.surface }, Shadows.sm]}>
           <SettingsItem
-            icon="construct-outline"
-            label="Manual Override"
-            subtitle="Servo control, conveyor speed"
-            onPress={() => router.push('/manual-override' as any)}
+            icon="hardware-chip-outline"
+            label="Hardware Monitor"
+            subtitle="ESP32 diagnostics, network telemetry"
+            onPress={() => router.push('/settings/hardware' as any)}
             theme={theme}
           />
           <SettingsItem
             icon="scan-outline"
             label="Vision Calibration"
-            subtitle="Set focal point, camera settings"
+            subtitle="ROI alignment, camera settings"
             onPress={() => router.push('/settings/vision' as any)}
             theme={theme}
           />
           <SettingsItem
-            icon="hardware-chip-outline"
-            label="Hardware Monitor"
-            subtitle="ESP32 battery, Wi-Fi signal"
-            onPress={() => router.push('/settings/hardware' as any)}
+            icon="construct-outline"
+            label="Manual Override"
+            subtitle="E-Stop, servo, conveyor control"
+            onPress={() => router.push('/manual-override' as any)}
             theme={theme}
           />
         </View>
 
-        <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>APP</Text>
+        <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>SYSTEM PREFERENCES</Text>
         <View style={[styles.settingsGroup, { backgroundColor: theme.surface }, Shadows.sm]}>
           <SettingsItem
-            icon="notifications-outline"
-            label="Notifications"
-            subtitle="Push alerts, thresholds"
-            onPress={() => router.push('/settings/notifications' as any)}
+            icon="pulse-outline"
+            label="Smart Thresholds"
+            subtitle="Alert rules, reject rate limits"
+            onPress={() => router.push('/settings/thresholds' as any)}
             theme={theme}
           />
           <SettingsItem
             icon="information-circle-outline"
-            label="About CacaoScan"
-            subtitle="Version 1.0.0"
+            label="System Information"
+            subtitle="Version, AI engine, compliance"
             onPress={() => router.push('/settings/about' as any)}
             theme={theme}
           />

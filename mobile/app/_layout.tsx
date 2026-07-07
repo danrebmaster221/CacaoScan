@@ -51,7 +51,7 @@ const CacaoDarkTheme = {
 };
 
 function RootLayoutNav() {
-  const { session, isLoading, pendingMFA, userProfile } = useAuth();
+  const { session, isLoading, pendingMFA, userProfile, user } = useAuth();
   const segments = useSegments();
   const router = useRouter();
 
@@ -66,7 +66,11 @@ function RootLayoutNav() {
       router.replace('/(auth)/login' as any);
     } else if (session) {
       // Check Boot Guard: Are they authenticated but missing profile details?
-      const isMissingProfile = !userProfile?.first_name || !userProfile?.last_name || !userProfile?.farm_location;
+      // Primary source: user_metadata (always available, no RLS)
+      const meta = user?.user_metadata;
+      const hasMetaProfile = meta?.first_name && meta?.last_name && meta?.farm_location;
+      const hasTableProfile = userProfile?.first_name && userProfile?.last_name && userProfile?.farm_location;
+      const isMissingProfile = !hasMetaProfile && !hasTableProfile;
 
       if (isMissingProfile) {
         // If they are missing profile data, force them to complete-profile screen
@@ -78,7 +82,7 @@ function RootLayoutNav() {
         router.replace('/(tabs)' as any);
       }
     }
-  }, [session, isLoading, segments, pendingMFA, router, userProfile]);
+  }, [session, isLoading, segments, pendingMFA, router, userProfile, user]);
 
   return (
     <Stack screenOptions={{ headerShown: false }}>

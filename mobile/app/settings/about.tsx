@@ -11,7 +11,7 @@ import { Stack } from 'expo-router';
 import { Colors, Typography, Spacing, Radius, Shadows } from '@/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 
-export default function AboutCacaoScanScreen() {
+export default function SystemInformationScreen() {
   const theme = Colors.light;
 
   const InfoRow = ({ label, value }: { label: string; value: string }) => (
@@ -23,56 +23,86 @@ export default function AboutCacaoScanScreen() {
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: theme.background }}>
-      <Stack.Screen options={{ title: 'About CacaoScan', headerShadowVisible: false }} />
+      <Stack.Screen options={{ title: 'System Information', headerShadowVisible: false }} />
       <View style={styles.container}>
 
-        {/* App Identity */}
+        {/* App Identity Header */}
         <View style={[styles.card, { backgroundColor: theme.surface }, Shadows.sm]}>
           <View style={styles.logoSection}>
             <View style={[styles.logoCircle, { backgroundColor: theme.primary }]}>
               <Text style={styles.logoText}>CS</Text>
             </View>
             <Text style={[styles.appName, { color: theme.text }]}>CacaoScan</Text>
-            <Text style={[styles.tagline, { color: theme.textSecondary }]}>
-              AI-Powered Cacao Bean Quality Grading System
-            </Text>
+            <Text style={[styles.version, { color: theme.textSecondary }]}>v1.0.0 (Production Candidate)</Text>
           </View>
+          <Text style={[styles.projectDesc, { color: theme.textSecondary }]}>
+            An AI-powered cacao bean quality grading and sorting system that integrates computer vision with IoT hardware for automated classification based on Philippine National Standards (PNS/BAFS 58:2019). Built to support Filipino cacao farmers with real-time sorting, batch management, and predictive analytics.
+          </Text>
         </View>
 
-        {/* Version Info */}
+        {/* AI Engine Specs */}
         <View style={[styles.card, { backgroundColor: theme.surface }, Shadows.sm]}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>System Information</Text>
-          <InfoRow label="App Version" value="1.0.0" />
-          <InfoRow label="Build" value="2026.07.07" />
-          <InfoRow label="Platform" value="React Native (Expo)" />
-          <InfoRow label="AI Model" value="YOLOv8 Custom" />
-          <InfoRow label="Hardware" value="ESP32-CAM Module" />
+          <View style={styles.sectionHeader}>
+            <Ionicons name="rocket-outline" size={20} color={theme.primary} />
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>AI Engine Specs</Text>
+          </View>
+          <InfoRow label="Model A (Detector)" value="YOLOv8n Custom" />
+          <InfoRow label="Model B (Classifier)" value="YOLOv8-cls Custom" />
+          <InfoRow label="Framework" value="Ultralytics + ONNX" />
+          <InfoRow label="Inference Backend" value="FastAPI (Hugging Face)" />
+          <InfoRow label="Last Trained" value="June 2026" />
         </View>
 
-        {/* Compliance */}
+        {/* Regulatory Compliance */}
         <View style={[styles.card, { backgroundColor: theme.surface }, Shadows.sm]}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Compliance &amp; Standards</Text>
-          <InfoRow label="Data Security" value="ISO 27001 Aligned" />
+          <View style={styles.sectionHeader}>
+            <Ionicons name="shield-checkmark-outline" size={20} color={theme.success} />
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Regulatory Compliance</Text>
+          </View>
           <InfoRow label="Quality Standard" value="PNS/BAFS 58:2019" />
+          <InfoRow label="Data Security" value="ISO 27001 Aligned" />
           <InfoRow label="Authentication" value="MFA + Lockout" />
           <InfoRow label="Audit Logging" value="Enabled" />
+          <InfoRow label="Session Policy" value="15min Timeout" />
         </View>
 
-        {/* Credits */}
+        {/* Research & Development Team */}
         <View style={[styles.card, { backgroundColor: theme.surface }, Shadows.sm]}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Developers</Text>
-          <Text style={[styles.creditText, { color: theme.textSecondary }]}>
-            CacaoScan was developed as a capstone project for Zamboanga City State Polytechnic College (ZCSPC).
+          <View style={styles.sectionHeader}>
+            <Ionicons name="people-outline" size={20} color={theme.primary} />
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Research and Development Team</Text>
+          </View>
+          <Text style={[styles.teamInstitution, { color: theme.textSecondary }]}>
+            Zamboanga City State Polytechnic College (ZCSPC)
           </Text>
-          <Text style={[styles.creditText, { color: theme.textSecondary, marginTop: Spacing.sm }]}>
-            Designed to support Filipino cacao farmers with automated quality grading powered by computer vision and IoT.
-          </Text>
+          <Text style={[styles.teamSection, { color: theme.textSecondary }]}>BSIT 4-C</Text>
+
+          <View style={styles.teamList}>
+            <View style={styles.teamMember}>
+              <View style={[styles.memberAvatar, { backgroundColor: theme.primary }]}>
+                <Text style={styles.memberInitial}>F</Text>
+              </View>
+              <Text style={[styles.memberName, { color: theme.text }]}>Felixandra P. Malicay</Text>
+            </View>
+            <View style={styles.teamMember}>
+              <View style={[styles.memberAvatar, { backgroundColor: theme.primary }]}>
+                <Text style={styles.memberInitial}>A</Text>
+              </View>
+              <Text style={[styles.memberName, { color: theme.text }]}>Alshaik M. Hassan</Text>
+            </View>
+            <View style={styles.teamMember}>
+              <View style={[styles.memberAvatar, { backgroundColor: theme.primary }]}>
+                <Text style={styles.memberInitial}>A</Text>
+              </View>
+              <Text style={[styles.memberName, { color: theme.text }]}>Alfahad L. Adian</Text>
+            </View>
+          </View>
         </View>
 
         {/* Links */}
         <View style={[styles.card, { backgroundColor: theme.surface }, Shadows.sm]}>
           <TouchableOpacity
-            style={[styles.linkRow, { borderBottomColor: theme.border }]}
+            style={styles.linkRow}
             onPress={() => Linking.openURL('https://github.com/danrebmaster221/CacaoScan')}
           >
             <Ionicons name="logo-github" size={20} color={theme.text} />
@@ -90,82 +120,27 @@ export default function AboutCacaoScanScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    padding: Spacing.lg,
-  },
-  card: {
-    borderRadius: Radius.lg,
-    padding: Spacing.lg,
-    marginBottom: Spacing.lg,
-  },
-  logoSection: {
-    alignItems: 'center',
-    paddingVertical: Spacing.lg,
-  },
-  logoCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: Spacing.md,
-  },
-  logoText: {
-    color: '#FFF8F0',
-    fontSize: 28,
-    fontFamily: Typography.fontFamily.bold,
-  },
-  appName: {
-    fontSize: Typography.fontSize['2xl'],
-    fontFamily: Typography.fontFamily.bold,
-    marginBottom: Spacing.xs,
-  },
-  tagline: {
-    fontSize: Typography.fontSize.sm,
-    fontFamily: Typography.fontFamily.medium,
-    textAlign: 'center',
-  },
-  sectionTitle: {
-    fontSize: Typography.fontSize.md,
-    fontFamily: Typography.fontFamily.semiBold,
-    marginBottom: Spacing.md,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: Spacing.sm,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  infoLabel: {
-    fontSize: Typography.fontSize.sm,
-    fontFamily: Typography.fontFamily.medium,
-  },
-  infoValue: {
-    fontSize: Typography.fontSize.sm,
-    fontFamily: Typography.fontFamily.semiBold,
-  },
-  creditText: {
-    fontSize: Typography.fontSize.sm,
-    fontFamily: Typography.fontFamily.regular,
-    lineHeight: 20,
-  },
-  linkRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    paddingVertical: Spacing.sm,
-  },
-  linkText: {
-    flex: 1,
-    fontSize: Typography.fontSize.base,
-    fontFamily: Typography.fontFamily.medium,
-  },
-  footer: {
-    textAlign: 'center',
-    fontSize: Typography.fontSize.xs,
-    fontFamily: Typography.fontFamily.regular,
-    marginTop: Spacing.sm,
-    marginBottom: Spacing.xl,
-  },
+  container: { padding: Spacing.lg },
+  card: { borderRadius: Radius.lg, padding: Spacing.lg, marginBottom: Spacing.lg },
+  logoSection: { alignItems: 'center', marginBottom: Spacing.lg },
+  logoCircle: { width: 72, height: 72, borderRadius: 36, alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.md },
+  logoText: { color: '#FFF8F0', fontSize: 28, fontFamily: Typography.fontFamily.bold },
+  appName: { fontSize: Typography.fontSize['2xl'], fontFamily: Typography.fontFamily.bold, marginBottom: 4 },
+  version: { fontSize: Typography.fontSize.sm, fontFamily: Typography.fontFamily.medium },
+  projectDesc: { fontSize: Typography.fontSize.sm, fontFamily: Typography.fontFamily.regular, lineHeight: 22, textAlign: 'center' },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginBottom: Spacing.md },
+  sectionTitle: { fontSize: Typography.fontSize.md, fontFamily: Typography.fontFamily.semiBold },
+  infoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: Spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth },
+  infoLabel: { fontSize: Typography.fontSize.sm, fontFamily: Typography.fontFamily.medium, flex: 1 },
+  infoValue: { fontSize: Typography.fontSize.sm, fontFamily: Typography.fontFamily.semiBold, textAlign: 'right' },
+  teamInstitution: { fontSize: Typography.fontSize.sm, fontFamily: Typography.fontFamily.medium, marginBottom: 2 },
+  teamSection: { fontSize: Typography.fontSize.xs, fontFamily: Typography.fontFamily.regular, marginBottom: Spacing.lg },
+  teamList: { gap: Spacing.md },
+  teamMember: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
+  memberAvatar: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  memberInitial: { color: '#FFF8F0', fontSize: Typography.fontSize.md, fontFamily: Typography.fontFamily.bold },
+  memberName: { fontSize: Typography.fontSize.base, fontFamily: Typography.fontFamily.medium },
+  linkRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingVertical: Spacing.sm },
+  linkText: { flex: 1, fontSize: Typography.fontSize.base, fontFamily: Typography.fontFamily.medium },
+  footer: { textAlign: 'center', fontSize: Typography.fontSize.xs, fontFamily: Typography.fontFamily.regular, marginTop: Spacing.sm, marginBottom: Spacing.xl },
 });

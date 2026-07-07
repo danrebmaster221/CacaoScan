@@ -121,21 +121,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function fetchUserRole(userId: string) {
     try {
+      // Primary source: auth user_metadata (always works, no RLS issues)
+      const { data: { user: freshUser } } = await supabase.auth.getUser();
+      const meta = freshUser?.user_metadata;
+
+      if (meta?.first_name && meta?.last_name && meta?.farm_location) {
+        setUserRole((meta.role as UserRole) ?? 'farmer');
+        setUserProfile({
+          role: (meta.role as UserRole) ?? 'farmer',
+          first_name: meta.first_name,
+          last_name: meta.last_name,
+          farm_location: meta.farm_location,
+        });
+        return;
+      }
+
+      // Fallback: profiles table (may fail due to RLS)
       const { data, error } = await supabase
         .from('profiles')
         .select('role, first_name, last_name, farm_location')
         .eq('id', userId)
         .single();
 
-      if (error) {
-        console.warn('Could not fetch user profile, defaulting to farmer:', error.message);
-        setUserRole('farmer');
-        setUserProfile(null);
+      if (!error && data?.first_name) {
+        setUserRole((data.role as UserRole) ?? 'farmer');
+        setUserProfile(data as UserProfile);
         return;
       }
 
-      setUserRole((data?.role as UserRole) ?? 'farmer');
-      setUserProfile(data as UserProfile);
+      // No profile data found anywhere
+      console.warn('No profile data found in metadata or profiles table.');
+      setUserRole('farmer');
+      setUserProfile(null);
     } catch {
       setUserRole('farmer');
       setUserProfile(null);
@@ -371,36 +388,54 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const userId = currentSession.user.id;
 
-      // Ensure profile exists/updated with new information
-      const { error: upsertError } = await supabase.from('profiles').upsert({
-        id: userId,
-        role: 'farmer', 
-        first_name: firstName,
-        last_name: lastName,
-        farm_location: farmLocation,
-      }, { onConflict: 'id' });
+      // PRIMARY: Save profile to auth user_metadata (always works, no RLS)
+      const updatePayload: any = {
+        data: {
+          first_name: firstName,
+          last_name: lastName,
+          farm_location: farmLocation,
+          role: 'farmer',
+        },
+      };
 
-      if (upsertError) return { error: 'Failed to update profile.' };
-
-      // Supabase update user to attach Password to OAuth account
+      // Attach password to OAuth account if provided
       if (password) {
-        const { error: authError } = await supabase.auth.updateUser({ password });
-        if (authError) {
-          // If the user tries to set the same password they already have, Supabase throws an error.
-          // In a "Complete Profile" flow, we can just treat this as a success since the goal is achieved.
-          if (authError.message.includes('different from the old password') || authError.message.includes('same password')) {
-             console.log('User entered existing password; treating as success.');
-          } else {
-             return { error: `Profile saved, but password failed: ${authError.message}` };
-          }
+        updatePayload.password = password;
+      }
+
+      const { error: metaError } = await supabase.auth.updateUser(updatePayload);
+      if (metaError) {
+        // Handle "same password" error gracefully
+        if (metaError.message.includes('different from the old password') || metaError.message.includes('same password')) {
+          console.log('User entered existing password; treating as success.');
+          // Re-attempt without password to save the metadata
+          const { error: retryError } = await supabase.auth.updateUser({
+            data: { first_name: firstName, last_name: lastName, farm_location: farmLocation, role: 'farmer' },
+          });
+          if (retryError) return { error: 'Failed to save profile metadata.' };
+        } else {
+          return { error: `Profile update failed: ${metaError.message}` };
         }
       }
 
-      // Refresh profile state
+      // FALLBACK: Also try to upsert to profiles table (may silently fail due to RLS)
+      try {
+        await supabase.from('profiles').upsert({
+          id: userId,
+          role: 'farmer',
+          first_name: firstName,
+          last_name: lastName,
+          farm_location: farmLocation,
+        }, { onConflict: 'id' });
+      } catch {
+        // Silently ignore — user_metadata is the primary source
+      }
+
+      // Refresh profile state from the newly updated metadata
       await fetchUserRole(userId);
       return { error: null };
 
-    } catch (e) {
+    } catch {
       return { error: 'An unexpected error occurred during profile completion.' };
     }
   }, []);
