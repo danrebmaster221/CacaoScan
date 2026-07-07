@@ -32,14 +32,18 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [emailFocused, setEmailFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
-  const { signIn, session } = useAuth();
+  const { signIn, session, userRole } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
     if (session) {
-      navigate('/dashboard');
+      if (userRole === 'admin') {
+        navigate('/dashboard/admin');
+      } else {
+        navigate('/dashboard');
+      }
     }
-  }, [session, navigate]);
+  }, [session, userRole, navigate]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
