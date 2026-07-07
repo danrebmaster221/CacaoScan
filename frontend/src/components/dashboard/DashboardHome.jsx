@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   PieChart,
   Pie,
@@ -30,14 +31,37 @@ const VARIETY_DATA = [
   { name: 'Forastero', value: 25, color: '#6D4C41' },
 ];
 
-const THROUGHPUT_DATA = [
-  { time: '08:00', throughput: 85 },
-  { time: '10:00', throughput: 92 },
-  { time: '12:00', throughput: 88 },
-  { time: '14:00', throughput: 110 },
-  { time: '16:00', throughput: 105 },
-  { time: '18:00', throughput: 95 },
-];
+const THROUGHPUT_DATA = {
+  daily: [
+    { time: 'Mon', throughput: 85 },
+    { time: 'Tue', throughput: 92 },
+    { time: 'Wed', throughput: 88 },
+    { time: 'Thu', throughput: 110 },
+    { time: 'Fri', throughput: 105 },
+    { time: 'Sat', throughput: 95 },
+  ],
+  weekly: [
+    { time: 'Week 1', throughput: 450 },
+    { time: 'Week 2', throughput: 480 },
+    { time: 'Week 3', throughput: 420 },
+    { time: 'Week 4', throughput: 510 },
+  ],
+  monthly: [
+    { time: 'Jan', throughput: 1850 },
+    { time: 'Feb', throughput: 1920 },
+    { time: 'Mar', throughput: 1880 },
+    { time: 'Apr', throughput: 2100 },
+    { time: 'May', throughput: 2050 },
+    { time: 'Jun', throughput: 1950 },
+  ],
+  yearly: [
+    { time: '2024', throughput: 22000 },
+    { time: '2025', throughput: 24500 },
+    { time: '2026', throughput: 26800 },
+    { time: '2027', throughput: 29100 },
+    { time: '2028', throughput: 31000 },
+  ]
+};
 
 const ANOMALIES_DATA = [
   { id: 'LOT-9021', date: 'Oct 14', rejected: '22%', issue: 'High Mold Count' },
@@ -55,6 +79,7 @@ function getGreeting() {
 export default function DashboardHome() {
   const { user, userRole } = useAuth();
   const displayName = user?.email?.split('@')[0] ?? 'Operator';
+  const [throughputTab, setThroughputTab] = useState('daily');
 
   return (
     <div className="space-y-8">
@@ -144,10 +169,27 @@ export default function DashboardHome() {
 
         {/* Throughput Area Chart */}
         <div className="dashboard-fade-in dashboard-stagger-5 dashboard-card-hover rounded-xl border border-[#A1887F]/10 bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-sm font-bold uppercase tracking-wider text-[#A1887F]">Daily Throughput (Beans/Min)</h2>
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="text-sm font-bold uppercase tracking-wider text-[#A1887F]">Throughput Focus (Beans)</h2>
+            <div className="flex gap-1 rounded-lg bg-[#FAF0E6]/50 p-1">
+              {['daily', 'weekly', 'monthly', 'yearly'].map(tab => (
+                <button
+                  key={tab}
+                  onClick={() => setThroughputTab(tab)}
+                  className={`rounded-md px-3 py-1 text-xs font-semibold capitalize transition-all ${
+                    throughputTab === tab
+                      ? 'bg-white text-[#3E2723] shadow-sm'
+                      : 'text-[#A1887F] hover:text-[#6D4C41]'
+                  }`}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="h-64 w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={THROUGHPUT_DATA} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <AreaChart data={THROUGHPUT_DATA[throughputTab]} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="colorThroughput" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#FFB74D" stopOpacity={0.3}/>

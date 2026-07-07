@@ -10,11 +10,10 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
-import DashboardPageHeader from '../components/dashboard/DashboardPageHeader';
 
 /* ── mock data ─────────────────────────────── */
 const BATCHES = Array.from({ length: 18 }, (_, i) => ({
-  id: `LOT-${9000 + i}`,
+  id: `BN-${9000 + i}`,
   date: `2026-10-${String(15 - i).padStart(2, '0')}`,
   totalBeans: Math.floor(400 + Math.random() * 600),
   variety: ['Trinitario', 'Criollo', 'Forastero'][i % 3],
@@ -48,7 +47,7 @@ function downloadCertificate(batch) {
   doc.setFontSize(13);
   let y = 60;
   const rows = [
-    ['Lot ID', batch.id],
+    ['Batch No.', batch.id],
     ['Process Date', batch.date],
     ['Variety', batch.variety],
     ['Total Beans', String(batch.totalBeans)],
@@ -118,7 +117,6 @@ export default function BatchManagement() {
 
   return (
     <div className="space-y-6">
-      <DashboardPageHeader />
 
       {/* Toolbar */}
       <div className="dashboard-fade-in dashboard-stagger-1 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -141,13 +139,13 @@ export default function BatchManagement() {
           <table className="w-full text-left text-sm">
             <thead className="border-b border-[#A1887F]/10 bg-[#FAF0E6]/40 text-xs uppercase tracking-wider text-[#A1887F]">
               <tr>
-                <th className="px-5 py-3.5 font-semibold">Lot ID</th>
+                <th className="px-5 py-3.5 font-semibold">Batch No.</th>
                 <th className="px-5 py-3.5 font-semibold">Date</th>
                 <th className="px-5 py-3.5 font-semibold">Variety</th>
                 <th className="px-5 py-3.5 font-semibold">Total</th>
                 <th className="px-5 py-3.5 font-semibold">Grade</th>
                 <th className="px-5 py-3.5 font-semibold">Confidence</th>
-                <th className="px-5 py-3.5 font-semibold">PNS</th>
+                <th className="px-5 py-3.5 font-semibold">PNS Compliant</th>
                 <th className="px-5 py-3.5 font-semibold text-right">Actions</th>
               </tr>
             </thead>

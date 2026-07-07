@@ -10,18 +10,16 @@ import {
   AlertTriangle,
   Info,
 } from 'lucide-react';
-import DashboardPageHeader from '../components/dashboard/DashboardPageHeader';
 
 /* ── mock data ─────────────────────────────── */
-const ESP32_NODES = [
-  { id: 'NODE-A1', ip: '192.168.1.101', status: 'online', rssi: -42, firmware: 'v2.4.1', lastPing: '120ms', uptime: '14d 6h' },
-  { id: 'NODE-B2', ip: '192.168.1.102', status: 'online', rssi: -58, firmware: 'v2.4.1', lastPing: '95ms', uptime: '7d 11h' },
-  { id: 'NODE-C3', ip: '192.168.1.103', status: 'offline', rssi: 0, firmware: 'v2.3.8', lastPing: '—', uptime: '—' },
+const MACHINES = [
+  { id: 'MACHINE-A1', ip: 'X-101', status: 'online', rssi: -42, firmware: 'v2.4.1', lastPing: '120ms', uptime: '14d 6h' },
+  { id: 'MACHINE-B2', ip: 'X-102', status: 'online', rssi: -58, firmware: 'v2.4.1', lastPing: '95ms', uptime: '7d 11h' },
+  { id: 'MACHINE-C3', ip: 'X-103', status: 'offline', rssi: 0, firmware: 'v2.3.8', lastPing: '—', uptime: '—' },
 ];
 
 const CAMERAS = [
   { id: 'CAM-01', resolution: '1920×1080', fps: 30, status: 'active', model: 'OV5640' },
-  { id: 'CAM-02', resolution: '1280×720', fps: 24, status: 'active', model: 'OV2640' },
 ];
 
 function rssiToQuality(rssi) {
@@ -43,14 +41,13 @@ export default function HardwareConfig() {
 
   return (
     <div className="space-y-6">
-      <DashboardPageHeader />
 
       {/* Top Cards — Network Telemetry */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         {/* Cloud RTT */}
         <div className="dashboard-fade-in dashboard-stagger-1 dashboard-card-hover rounded-xl border border-[#A1887F]/10 bg-white p-5 shadow-sm">
           <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#A1887F]">
-            <Activity className="h-4 w-4" /> Cloud RTT
+            <Activity className="h-4 w-4" /> Data Sync Speed
           </div>
           <p className="mt-3 text-4xl font-extrabold text-[#3E2723]">108ms</p>
           <div className="mt-2 flex items-center gap-1.5">
@@ -62,12 +59,12 @@ export default function HardwareConfig() {
         {/* Active Nodes */}
         <div className="dashboard-fade-in dashboard-stagger-2 dashboard-card-hover rounded-xl border border-[#A1887F]/10 bg-white p-5 shadow-sm">
           <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#A1887F]">
-            <Cpu className="h-4 w-4" /> ESP32 Nodes
+            <Cpu className="h-4 w-4" /> Active Scanners
           </div>
           <p className="mt-3 text-4xl font-extrabold text-[#3E2723]">
-            {ESP32_NODES.filter((n) => n.status === 'online').length}/{ESP32_NODES.length}
+            {MACHINES.filter((n) => n.status === 'online').length}/{MACHINES.length}
           </p>
-          <p className="mt-1 text-xs text-[#A1887F]">Nodes online</p>
+          <p className="mt-1 text-xs text-[#A1887F]">Scanners online</p>
         </div>
 
         {/* Camera Status */}
@@ -85,23 +82,23 @@ export default function HardwareConfig() {
       {/* ESP32 Node Table */}
       <div className="dashboard-fade-in dashboard-stagger-4 overflow-hidden rounded-xl border border-[#A1887F]/10 bg-white shadow-sm">
         <div className="border-b border-[#A1887F]/10 px-5 py-4">
-          <h2 className="text-sm font-bold uppercase tracking-wider text-[#A1887F]">ESP32 Node Registry</h2>
+          <h2 className="text-sm font-bold uppercase tracking-wider text-[#A1887F]">Connected Machines</h2>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="bg-[#FAF0E6]/40 text-xs uppercase tracking-wider text-[#A1887F]">
               <tr>
-                <th className="px-5 py-3 font-semibold">Node</th>
-                <th className="px-5 py-3 font-semibold">IP Address</th>
+                <th className="px-5 py-3 font-semibold">Machine Name</th>
+                <th className="px-5 py-3 font-semibold">Device ID</th>
                 <th className="px-5 py-3 font-semibold">Status</th>
-                <th className="px-5 py-3 font-semibold">Wi-Fi RSSI</th>
-                <th className="px-5 py-3 font-semibold">Ping</th>
-                <th className="px-5 py-3 font-semibold">Uptime</th>
-                <th className="px-5 py-3 font-semibold">Firmware</th>
+                <th className="px-5 py-3 font-semibold">Wi-Fi Signal</th>
+                <th className="px-5 py-3 font-semibold">Sync Speed</th>
+                <th className="px-5 py-3 font-semibold">Time Active</th>
+                <th className="px-5 py-3 font-semibold">Software Version</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#A1887F]/10">
-              {ESP32_NODES.map((node) => {
+              {MACHINES.map((node) => {
                 const signal = rssiToQuality(node.rssi);
                 return (
                   <tr key={node.id} className="hover:bg-[#FFFBF7]">
@@ -167,9 +164,9 @@ export default function HardwareConfig() {
 
       {/* Remote Actuators */}
       <div className="dashboard-fade-in dashboard-stagger-7 dashboard-card-hover rounded-xl border border-[#A1887F]/10 bg-white p-6 shadow-sm">
-        <h2 className="mb-4 text-sm font-bold uppercase tracking-wider text-[#A1887F]">Remote Actuator Diagnostics</h2>
+        <h2 className="mb-4 text-sm font-bold uppercase tracking-wider text-[#A1887F]">Manual Machine Controls</h2>
         <div className="flex flex-wrap gap-3">
-          {['Pulse Conveyor', 'Cycle Flipper', 'Reset Camera', 'Force Sync'].map((action) => (
+          {['Test Conveyor', 'Test Sorter Arm', 'Restart Camera', 'Manual Cloud Sync'].map((action) => (
             <button
               key={action}
               onClick={() => handleActuator(action)}

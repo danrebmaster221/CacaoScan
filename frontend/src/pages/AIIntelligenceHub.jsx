@@ -11,7 +11,6 @@ import {
   SlidersHorizontal,
   ChevronDown,
 } from 'lucide-react';
-import DashboardPageHeader from '../components/dashboard/DashboardPageHeader';
 
 /* ── mock data ─────────────────────────────── */
 const FLAGGED_ITEMS = Array.from({ length: 9 }, (_, i) => ({
@@ -44,7 +43,6 @@ export default function AIIntelligenceHub() {
 
   return (
     <div className="space-y-6">
-      <DashboardPageHeader />
 
       {/* Top row */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">

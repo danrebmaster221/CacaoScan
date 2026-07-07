@@ -16,21 +16,39 @@ import {
   ShieldCheck,
   ArrowUp,
 } from 'lucide-react';
-import DashboardPageHeader from '../components/dashboard/DashboardPageHeader';
 
 /* ── mock data ─────────────────────────────── */
-const QUALITY_TREND = [
-  { batch: 'B-01', grade: 72 },
-  { batch: 'B-02', grade: 75 },
-  { batch: 'B-03', grade: 71 },
-  { batch: 'B-04', grade: 78 },
-  { batch: 'B-05', grade: 80 },
-  { batch: 'B-06', grade: 82 },
-  { batch: 'B-07', grade: 79 },
-  { batch: 'B-08', grade: 85 },
-  { batch: 'B-09', grade: 88 },
-  { batch: 'B-10', grade: 87 },
-];
+const QUALITY_TREND = {
+  daily: [
+    { batch: 'Mon', grade: 72 },
+    { batch: 'Tue', grade: 75 },
+    { batch: 'Wed', grade: 71 },
+    { batch: 'Thu', grade: 78 },
+    { batch: 'Fri', grade: 80 },
+    { batch: 'Sat', grade: 82 },
+  ],
+  weekly: [
+    { batch: 'Week 1', grade: 79 },
+    { batch: 'Week 2', grade: 85 },
+    { batch: 'Week 3', grade: 88 },
+    { batch: 'Week 4', grade: 87 },
+  ],
+  monthly: [
+    { batch: 'Jan', grade: 72 },
+    { batch: 'Feb', grade: 78 },
+    { batch: 'Mar', grade: 75 },
+    { batch: 'Apr', grade: 81 },
+    { batch: 'May', grade: 84 },
+    { batch: 'Jun', grade: 87 },
+  ],
+  yearly: [
+    { batch: '2024', grade: 70 },
+    { batch: '2025', grade: 74 },
+    { batch: '2026', grade: 79 },
+    { batch: '2027', grade: 84 },
+    { batch: '2028', grade: 89 },
+  ]
+};
 
 // Simple linear regression for trendline
 function linearRegression(data) {
@@ -47,11 +65,12 @@ function linearRegression(data) {
   return data.map((d, i) => ({ ...d, trend: Math.round(intercept + slope * i) }));
 }
 
-const TREND_DATA = linearRegression(QUALITY_TREND);
+
 
 /* ── component ─────────────────────────────── */
 export default function YieldPredictor() {
   const [dryingHours, setDryingHours] = useState(48);
+  const [trendTab, setTrendTab] = useState('daily');
 
   /* very simplified economic estimate */
   const pricePerKg = 4.2;
@@ -65,7 +84,6 @@ export default function YieldPredictor() {
 
   return (
     <div className="space-y-6">
-      <DashboardPageHeader />
 
       {/* Top cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -107,10 +125,27 @@ export default function YieldPredictor() {
 
       {/* Quality Trend Chart */}
       <div className="dashboard-fade-in dashboard-stagger-4 dashboard-card-hover rounded-xl border border-[#A1887F]/10 bg-white p-6 shadow-sm">
-        <h2 className="mb-4 text-sm font-bold uppercase tracking-wider text-[#A1887F]">Export Grade % — Last 10 Batches</h2>
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="text-sm font-bold uppercase tracking-wider text-[#A1887F]">Export Grade % Trend</h2>
+          <div className="flex gap-1 rounded-lg bg-[#FAF0E6]/50 p-1">
+            {['daily', 'weekly', 'monthly', 'yearly'].map(tab => (
+              <button
+                key={tab}
+                onClick={() => setTrendTab(tab)}
+                className={`rounded-md px-3 py-1 text-xs font-semibold capitalize transition-all ${
+                  trendTab === tab
+                    ? 'bg-white text-[#3E2723] shadow-sm'
+                    : 'text-[#A1887F] hover:text-[#6D4C41]'
+                }`}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="h-72 w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={TREND_DATA} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+            <LineChart data={linearRegression(QUALITY_TREND[trendTab])} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E8DFD6" />
               <XAxis dataKey="batch" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#A1887F' }} dy={10} />
               <YAxis domain={[60, 100]} axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#A1887F' }} />
