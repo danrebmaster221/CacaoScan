@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, SafeAreaView, ActivityIndicator, Alert, Platform, StatusBar } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, SafeAreaView, ActivityIndicator, Alert } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { supabase } from '@/services/supabase';
 import { Colors, Typography, Spacing, Radius } from '@/constants/theme';
@@ -15,11 +15,7 @@ export default function BatchDrillDownScreen() {
   const [loading, setLoading] = useState(true);
   const [filterMode, setFilterMode] = useState<'all' | 'rejected' | 'flagged'>('all');
 
-  useEffect(() => {
-    fetchClassifications();
-  }, [id]);
-
-  async function fetchClassifications() {
+  const fetchClassifications = useCallback(async () => {
     setLoading(true);
     try {
       const { data, error } = await supabase
@@ -43,7 +39,11 @@ export default function BatchDrillDownScreen() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [id]);
+
+  useEffect(() => {
+    fetchClassifications();
+  }, [fetchClassifications]);
 
   const handleFlagError = async (classificationId: string) => {
     Alert.alert(
@@ -111,7 +111,7 @@ export default function BatchDrillDownScreen() {
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={theme.text} />
-          <Text style={styles.backText}>MLOps Drill-Down</Text>
+          <Text style={[styles.backText, { color: theme.text }]}>MLOps Drill-Down</Text>
         </TouchableOpacity>
       </View>
 

@@ -16,6 +16,7 @@ import { useRouter } from 'expo-router';
 import { Colors, Typography, Spacing, Radius, Shadows, Palette } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useAuth } from '@/context/AuthContext';
+import { useTheme } from '@/context/ThemeContext';
 
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
@@ -98,14 +99,79 @@ function SignOutModal({ visible, onCancel, onConfirm, theme }: SignOutModalProps
   );
 }
 
+function ThemeModal({
+  visible,
+  onClose,
+  currentMode,
+  onSelectMode,
+  theme,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  currentMode: string;
+  onSelectMode: (mode: 'system' | 'light' | 'dark') => void;
+  theme: typeof Colors.light;
+}) {
+  const modes = [
+    { id: 'light', label: 'Light Mode', icon: 'sunny-outline' as IoniconName },
+    { id: 'dark', label: 'Dark Mode', icon: 'moon-outline' as IoniconName },
+    { id: 'system', label: 'System Default', icon: 'phone-portrait-outline' as IoniconName },
+  ];
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.modalOverlay}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <View style={[styles.modalCard, { backgroundColor: theme.surface }, Shadows.md]}>
+          <Text style={[styles.modalTitle, { color: theme.text, marginBottom: Spacing.lg }]}>
+            Theme Preference
+          </Text>
+
+          {modes.map((m) => (
+            <TouchableOpacity
+              key={m.id}
+              style={[
+                styles.themeOptionBtn,
+                currentMode === m.id && { backgroundColor: theme.primary + '11', borderColor: theme.primary }
+              ]}
+              onPress={() => {
+                onSelectMode(m.id as 'system' | 'light' | 'dark');
+                onClose();
+              }}
+            >
+              <Ionicons name={m.icon} size={20} color={currentMode === m.id ? theme.primary : theme.textSecondary} />
+              <Text style={[styles.themeOptionText, { color: currentMode === m.id ? theme.primary : theme.text }]}>
+                {m.label}
+              </Text>
+              {currentMode === m.id && (
+                <Ionicons name="checkmark-circle" size={20} color={theme.primary} style={{ marginLeft: 'auto' }} />
+              )}
+            </TouchableOpacity>
+          ))}
+
+          <TouchableOpacity
+            style={[styles.modalCancelBtn, { borderColor: theme.border, marginTop: Spacing.md, width: '100%' }]}
+            onPress={onClose}
+          >
+            <Text style={[styles.modalCancelText, { color: theme.text }]}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+
 export default function SettingsScreen() {
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
   const { user, userRole, signOut } = useAuth();
+  const { themeMode, setThemeMode } = useTheme();
   const router = useRouter();
   const [showSignOutModal, setShowSignOutModal] = useState(false);
+  const [showThemeModal, setShowThemeModal] = useState(false);
 
-  const displayName = user?.user_metadata?.full_name || user?.user_metadata?.first_name || 'Farmer';
+  const displayName = user?.user_metadata?.full_name || user?.user_metadata?.first_name || (userRole === 'admin' ? 'Admin' : 'Farmer');
 
   async function handleSignOutConfirm() {
     setShowSignOutModal(false);
@@ -197,6 +263,13 @@ export default function SettingsScreen() {
         <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>SYSTEM PREFERENCES</Text>
         <View style={[styles.settingsGroup, { backgroundColor: theme.surface }, Shadows.sm]}>
           <SettingsItem
+            icon="color-palette-outline"
+            label="App Theme"
+            subtitle={themeMode === 'system' ? 'System Default' : themeMode === 'light' ? 'Light Mode' : 'Dark Mode'}
+            onPress={() => setShowThemeModal(true)}
+            theme={theme}
+          />
+          <SettingsItem
             icon="pulse-outline"
             label="Smart Thresholds"
             subtitle="Alert rules, reject rate limits"
@@ -225,6 +298,14 @@ export default function SettingsScreen() {
         visible={showSignOutModal}
         onCancel={() => setShowSignOutModal(false)}
         onConfirm={handleSignOutConfirm}
+        theme={theme}
+      />
+      
+      <ThemeModal
+        visible={showThemeModal}
+        onClose={() => setShowThemeModal(false)}
+        currentMode={themeMode}
+        onSelectMode={setThemeMode}
         theme={theme}
       />
     </SafeAreaView>
@@ -417,5 +498,20 @@ const styles = StyleSheet.create({
     color: Palette.cream,
     fontSize: Typography.fontSize.base,
     fontFamily: Typography.fontFamily.semiBold,
+  },
+  themeOptionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    padding: Spacing.md,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    marginBottom: Spacing.sm,
+    gap: Spacing.md,
+  },
+  themeOptionText: {
+    fontSize: Typography.fontSize.base,
+    fontFamily: Typography.fontFamily.medium,
   },
 });

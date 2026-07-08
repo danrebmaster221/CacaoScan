@@ -19,6 +19,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { Colors } from '@/constants/theme';
+import { CacaoThemeProvider } from '@/context/ThemeContext';
 
 // Prevent splash screen from auto-hiding
 SplashScreen.preventAutoHideAsync();
@@ -50,10 +51,16 @@ const CacaoDarkTheme = {
   },
 };
 
-function RootLayoutNav() {
+function RootLayoutNav({ fontsLoaded }: { fontsLoaded: boolean }) {
   const { session, isLoading, pendingMFA, userProfile, user } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+
+  useEffect(() => {
+    if (fontsLoaded && !isLoading) {
+      SplashScreen.hideAsync();
+    }
+  }, [fontsLoaded, isLoading]);
 
   useEffect(() => {
     if (isLoading) return;
@@ -96,9 +103,20 @@ function RootLayoutNav() {
   );
 }
 
-export default function RootLayout() {
+function RootApp({ fontsLoaded }: { fontsLoaded: boolean }) {
   const colorScheme = useColorScheme();
 
+  return (
+    <AuthProvider>
+      <ThemeProvider value={colorScheme === 'dark' ? CacaoDarkTheme : CacaoLightTheme}>
+        <RootLayoutNav fontsLoaded={fontsLoaded} />
+        <StatusBar style="auto" />
+      </ThemeProvider>
+    </AuthProvider>
+  );
+}
+
+export default function RootLayout() {
   const [fontsLoaded] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
@@ -106,11 +124,7 @@ export default function RootLayout() {
     Inter_700Bold,
   });
 
-  useEffect(() => {
-    if (fontsLoaded) {
-      SplashScreen.hideAsync();
-    }
-  }, [fontsLoaded]);
+  // SplashScreen hidden in RootLayoutNav after Auth resolution
 
   if (!fontsLoaded) {
     return null;
@@ -118,12 +132,9 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={styles.root}>
-      <AuthProvider>
-        <ThemeProvider value={colorScheme === 'dark' ? CacaoDarkTheme : CacaoLightTheme}>
-          <RootLayoutNav />
-          <StatusBar style="auto" />
-        </ThemeProvider>
-      </AuthProvider>
+      <CacaoThemeProvider>
+        <RootApp fontsLoaded={fontsLoaded} />
+      </CacaoThemeProvider>
     </GestureHandlerRootView>
   );
 }
@@ -131,3 +142,4 @@ export default function RootLayout() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
 });
+

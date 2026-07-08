@@ -111,7 +111,7 @@ function CounterCard({
 export default function DashboardScreen() {
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
-  const { user } = useAuth();
+  const { user, userRole } = useAuth();
   const {
     activeBatch,
     isLoading,
@@ -150,7 +150,7 @@ export default function DashboardScreen() {
     }
   }, [activeBatch?.status, throughput]);
 
-  const displayName = user?.user_metadata?.full_name || 'Farmer';
+  const displayName = user?.user_metadata?.full_name || (userRole === 'admin' ? 'Admin' : 'Farmer');
 
   // Get time-based greeting
   const hour = new Date().getHours();

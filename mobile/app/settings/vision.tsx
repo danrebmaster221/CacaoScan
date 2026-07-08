@@ -24,9 +24,9 @@ interface ROIBox {
 }
 
 const DEFAULT_ROIS: ROIBox[] = [
-  { x: 155, y: 120, w: 140, h: 240 },   // Left pocket
-  { x: 380, y: 120, w: 140, h: 240 },   // Center pocket
-  { x: 605, y: 120, w: 140, h: 240 },   // Right pocket
+  { x: 160, y: 150, w: 120, h: 200 },   // Left pocket
+  { x: 420, y: 150, w: 120, h: 200 },   // Center pocket
+  { x: 680, y: 150, w: 120, h: 200 },   // Right pocket
 ];
 
 const POCKET_LABELS = ['Left', 'Center', 'Right'];
@@ -175,10 +175,10 @@ export default function VisionCalibrationScreen() {
                     style={[
                       styles.roiBox,
                       {
-                        left: roi.x,
-                        top: roi.y,
-                        width: roi.w,
-                        height: roi.h,
+                        left: `${(roi.x / 1024) * 100}%`,
+                        top: `${(roi.y / 559) * 100}%`,
+                        width: `${(roi.w / 1024) * 100}%`,
+                        height: `${(roi.h / 559) * 100}%`,
                         borderColor: i === selectedPocket ? '#00FF00' : '#00FF0088',
                         borderWidth: i === selectedPocket ? 2 : 1,
                       },
