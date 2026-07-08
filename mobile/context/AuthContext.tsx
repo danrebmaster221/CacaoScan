@@ -19,8 +19,12 @@
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { Session, User } from '@supabase/supabase-js';
-import { Alert } from 'react-native';
+import { Alert, Platform } from 'react-native';
+import * as WebBrowser from 'expo-web-browser';
+import * as Linking from 'expo-linking';
 import { supabase } from '@/services/supabase';
+
+WebBrowser.maybeCompleteAuthSession();
 import {
   getLockoutInfo,
   incrementFailedAttempts,
@@ -356,13 +360,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
    */
   const signInWithGoogle = useCallback(async (): Promise<{ error: string | null }> => {
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
+      const redirectUrl = Linking.createURL('/(auth)/login');
+      const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: 'cacaoscan://oauth-callback',
+          redirectTo: redirectUrl,
+          skipBrowserRedirect: Platform.OS !== 'web',
         },
       });
+      
       if (error) return { error: error.message };
+
+      if (data?.url) {
+        if (Platform.OS === 'web') {
+          // Native TS fallback definition for window logic if web runs code
+          return { error: 'Should have redirected natively' };
+        } else {
+          const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
+
+          if (result.type === 'success' && result.url) {
+            // Support PKCE exchange params cleanly via Expo Linking parser
+            const params = Linking.parse(result.url);
+            
+            if (params.queryParams?.error) {
+              return { error: String(params.queryParams.error_description || 'OAuth failed') };
+            }
+            
+            if (params.queryParams?.code) {
+              const { error: sessionError } = await supabase.auth.exchangeCodeForSession(String(params.queryParams.code));
+              if (sessionError) return { error: sessionError.message };
+            } else if (result.url.includes('#access_token')) {
+              // Legacy Implicit Grant fallback support handling
+              const hashMatch = result.url.match(/#access_token=([^&]+).*&refresh_token=([^&]+)/);
+              if (hashMatch) {
+                await supabase.auth.setSession({ access_token: hashMatch[1], refresh_token: hashMatch[2] });
+              }
+            }
+          }
+        }
+      }
       return { error: null };
     } catch (e) {
       return { error: 'Google Sign-In failed. Please try again.' };
