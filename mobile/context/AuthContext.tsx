@@ -360,7 +360,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
    */
   const signInWithGoogle = useCallback(async (): Promise<{ error: string | null }> => {
     try {
-      const redirectUrl = Linking.createURL('/(auth)/login');
+      // Use explicit scheme for compiled APKs to prevent fallback to localhost
+      const redirectUrl = Platform.OS === 'web' 
+        ? window.location.origin
+        : 'cacaoscan://(auth)/login';
+        
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
