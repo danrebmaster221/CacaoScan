@@ -357,14 +357,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   /**
    * Google OAuth Sign-In
+   * 
+   * Redirect URL strategy:
+   * - Expo Go (dev): Linking.createURL() → exp://192.168.x.x:8081/--/(auth)/login
+   * - Compiled APK:  hardcoded cacaoscan://(auth)/login
+   * - Web:           window.location.origin
+   * 
+   * IMPORTANT: ALL redirect URLs must be whitelisted in Supabase Dashboard →
+   * Authentication → URL Configuration → Redirect URLs
    */
   const signInWithGoogle = useCallback(async (): Promise<{ error: string | null }> => {
     try {
-      // Use explicit scheme for compiled APKs to prevent fallback to localhost
-      const redirectUrl = Platform.OS === 'web' 
-        ? window.location.origin
-        : 'cacaoscan://(auth)/login';
-        
+      // Dynamically determine redirect URL based on environment
+      let redirectUrl: string;
+      if (Platform.OS === 'web') {
+        redirectUrl = typeof window !== 'undefined' ? window.location.origin : '';
+      } else {
+        // Linking.createURL works for BOTH Expo Go (exp://) and compiled APK (cacaoscan://)
+        // It reads the scheme from app.json automatically per environment
+        redirectUrl = Linking.createURL('(auth)/login');
+      }
+
+      console.log('[OAuth] Using redirect URL:', redirectUrl);
+
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
@@ -377,34 +392,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (data?.url) {
         if (Platform.OS === 'web') {
-          // Native TS fallback definition for window logic if web runs code
           return { error: 'Should have redirected natively' };
         } else {
+          console.log('[OAuth] Opening auth session...');
           const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
+          console.log('[OAuth] Auth session result type:', result.type);
 
           if (result.type === 'success' && result.url) {
-            // Support PKCE exchange params cleanly via Expo Linking parser
+            console.log('[OAuth] Callback URL received:', result.url);
             const params = Linking.parse(result.url);
             
             if (params.queryParams?.error) {
               return { error: String(params.queryParams.error_description || 'OAuth failed') };
             }
             
+            // PKCE code exchange (primary flow)
             if (params.queryParams?.code) {
+              console.log('[OAuth] Exchanging PKCE code for session...');
               const { error: sessionError } = await supabase.auth.exchangeCodeForSession(String(params.queryParams.code));
               if (sessionError) return { error: sessionError.message };
             } else if (result.url.includes('#access_token')) {
-              // Legacy Implicit Grant fallback support handling
+              // Legacy Implicit Grant fallback
               const hashMatch = result.url.match(/#access_token=([^&]+).*&refresh_token=([^&]+)/);
               if (hashMatch) {
                 await supabase.auth.setSession({ access_token: hashMatch[1], refresh_token: hashMatch[2] });
               }
             }
+          } else if (result.type === 'cancel' || result.type === 'dismiss') {
+            console.log('[OAuth] User cancelled or dismissed the auth session');
+            return { error: null }; // User cancelled, not an error
           }
         }
       }
       return { error: null };
-    } catch (e) {
+    } catch (e: any) {
+      console.error('[OAuth] Error:', e?.message || e);
       return { error: 'Google Sign-In failed. Please try again.' };
     }
   }, []);
