@@ -22,7 +22,6 @@ import { Session, User } from '@supabase/supabase-js';
 import { Alert, Platform } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
-import { makeRedirectUri } from 'expo-auth-session';
 import { supabase } from '@/services/supabase';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -374,11 +373,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (Platform.OS === 'web') {
         redirectUrl = typeof window !== 'undefined' ? window.location.origin : '';
       } else {
-        // makeRedirectUri auto-detects the correct scheme per environment:
-        // - Expo Go: exp://192.168.x.x:8081
-        // - Standalone APK: cacaoscan:// (reads scheme from app.json)
-        // No path needed — onAuthStateChange handles post-auth navigation
-        redirectUrl = makeRedirectUri();
+        // Use Linking.createURL for the redirect — works in both Expo Go and standalone
+        redirectUrl = Linking.createURL('');
       }
 
       console.log('[OAuth] Using redirect URL:', redirectUrl);
@@ -398,8 +394,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return { error: 'Should have redirected natively' };
         } else {
           console.log('[OAuth] Opening auth session...');
-          const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
-          console.log('[OAuth] Auth session result type:', result.type);
+
+          // Use a deep link listener approach — more reliable than openAuthSessionAsync
+          // in Expo Go on Android where Chrome Custom Tabs can't redirect to exp://
+          const result = await new Promise<{ type: string; url?: string }>((resolve) => {
+            // Listen for the deep link callback
+            const subscription = Linking.addEventListener('url', (event) => {
+              subscription.remove();
+              resolve({ type: 'success', url: event.url });
+            });
+
+            // Open the browser (not auth session — we handle the return via Linking)
+            WebBrowser.openBrowserAsync(data.url, {
+              showInRecents: true,
+            }).catch(() => {
+              subscription.remove();
+              resolve({ type: 'cancel' });
+            });
+          });
+
+          // Dismiss the browser once we get the callback
+          WebBrowser.dismissBrowser();
+
+          console.log('[OAuth] Auth result type:', result.type);
 
           if (result.type === 'success' && result.url) {
             console.log('[OAuth] Callback URL received:', result.url);
