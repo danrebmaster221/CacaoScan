@@ -22,6 +22,7 @@ import { Session, User } from '@supabase/supabase-js';
 import { Alert, Platform } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
+import { makeRedirectUri } from 'expo-auth-session';
 import { supabase } from '@/services/supabase';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -373,9 +374,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (Platform.OS === 'web') {
         redirectUrl = typeof window !== 'undefined' ? window.location.origin : '';
       } else {
-        // Linking.createURL works for BOTH Expo Go (exp://) and compiled APK (cacaoscan://)
-        // It reads the scheme from app.json automatically per environment
-        redirectUrl = Linking.createURL('(auth)/login');
+        // makeRedirectUri generates the correct URI per environment:
+        // - Expo Go: exp://192.168.x.x:8081/--/(auth)/login (won't collide with installed APKs)
+        // - Standalone APK: cacaoscan://(auth)/login
+        redirectUrl = makeRedirectUri({
+          scheme: 'cacaoscan',
+          path: '(auth)/login',
+        });
       }
 
       console.log('[OAuth] Using redirect URL:', redirectUrl);
