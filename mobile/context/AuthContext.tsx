@@ -393,30 +393,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (Platform.OS === 'web') {
           return { error: 'Should have redirected natively' };
         } else {
-          console.log('[OAuth] Opening auth session...');
+          // Log full auth URL for debugging redirect issues
+          console.log('[OAuth] Full auth URL:', data.url);
+          
+          // Extract and log the redirect_to from the auth URL
+          try {
+            const authUrlParsed = new URL(data.url);
+            console.log('[OAuth] redirect_to in URL:', authUrlParsed.searchParams.get('redirect_to'));
+          } catch {}
 
-          // Use system browser + deep link listener — Chrome Custom Tabs blocks
-          // 302 redirects to exp:// scheme, system browser handles them via intents
-          const result = await new Promise<{ type: string; url?: string }>((resolve) => {
-            // Listen for the deep link callback
-            const subscription = Linking.addEventListener('url', (event) => {
-              subscription.remove();
-              resolve({ type: 'success', url: event.url });
-            });
-
-            // Timeout safeguard — 120 seconds
-            const timeout = setTimeout(() => {
-              subscription.remove();
-              resolve({ type: 'cancel' });
-            }, 120000);
-
-            // Open in system browser (NOT Chrome Custom Tabs)
-            Linking.openURL(data.url).catch(() => {
-              clearTimeout(timeout);
-              subscription.remove();
-              resolve({ type: 'cancel' });
-            });
-          });
+          const result = await WebBrowser.openAuthSessionAsync(
+            data.url,
+            redirectUrl,
+          );
+          console.log('[OAuth] Auth session result:', JSON.stringify(result));
 
           console.log('[OAuth] Auth result type:', result.type);
 
