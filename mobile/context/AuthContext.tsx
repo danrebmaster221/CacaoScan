@@ -374,11 +374,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (Platform.OS === 'web') {
         redirectUrl = typeof window !== 'undefined' ? window.location.origin : '';
       } else {
-        // makeRedirectUri generates the correct URI per environment:
-        // - Expo Go: exp://192.168.x.x:8081/--/(auth)/login (won't collide with installed APKs)
-        // - Standalone APK: cacaoscan://(auth)/login
+        // makeRedirectUri auto-detects the correct scheme per environment:
+        // - Expo Go: exp://192.168.x.x:8081/--/(auth)/login
+        // - Standalone APK: cacaoscan://(auth)/login (reads scheme from app.json)
         redirectUrl = makeRedirectUri({
-          scheme: 'cacaoscan',
           path: '(auth)/login',
         });
       }
