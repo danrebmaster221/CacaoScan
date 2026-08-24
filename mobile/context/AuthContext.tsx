@@ -375,11 +375,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         redirectUrl = typeof window !== 'undefined' ? window.location.origin : '';
       } else {
         // makeRedirectUri auto-detects the correct scheme per environment:
-        // - Expo Go: exp://192.168.x.x:8081/--/(auth)/login
-        // - Standalone APK: cacaoscan://(auth)/login (reads scheme from app.json)
-        redirectUrl = makeRedirectUri({
-          path: '(auth)/login',
-        });
+        // - Expo Go: exp://192.168.x.x:8081
+        // - Standalone APK: cacaoscan:// (reads scheme from app.json)
+        // No path needed — onAuthStateChange handles post-auth navigation
+        redirectUrl = makeRedirectUri();
       }
 
       console.log('[OAuth] Using redirect URL:', redirectUrl);
