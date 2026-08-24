@@ -395,8 +395,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } else {
           console.log('[OAuth] Opening auth session...');
 
-          // Use a deep link listener approach — more reliable than openAuthSessionAsync
-          // in Expo Go on Android where Chrome Custom Tabs can't redirect to exp://
+          // Use system browser + deep link listener — Chrome Custom Tabs blocks
+          // 302 redirects to exp:// scheme, system browser handles them via intents
           const result = await new Promise<{ type: string; url?: string }>((resolve) => {
             // Listen for the deep link callback
             const subscription = Linking.addEventListener('url', (event) => {
@@ -404,17 +404,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               resolve({ type: 'success', url: event.url });
             });
 
-            // Open the browser (not auth session — we handle the return via Linking)
-            WebBrowser.openBrowserAsync(data.url, {
-              showInRecents: true,
-            }).catch(() => {
+            // Timeout safeguard — 120 seconds
+            const timeout = setTimeout(() => {
+              subscription.remove();
+              resolve({ type: 'cancel' });
+            }, 120000);
+
+            // Open in system browser (NOT Chrome Custom Tabs)
+            Linking.openURL(data.url).catch(() => {
+              clearTimeout(timeout);
               subscription.remove();
               resolve({ type: 'cancel' });
             });
           });
-
-          // Dismiss the browser once we get the callback
-          WebBrowser.dismissBrowser();
 
           console.log('[OAuth] Auth result type:', result.type);
 
