@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Redirecting...</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      background: #1a1a2e;
+      color: #e0e0e0;
+    }
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      margin: 0 auto 1rem;
+      border: 3px solid #333;
+      border-top-color: #C4724D;
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .container {
+      text-align: center;
+      padding: 2rem;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <div class="spinner"></div>
+    <p>Redirecting to CacaoScan...</p>
+  </div>
+  <script>
+    // Bridge: receives OAuth via HTTPS, JS-redirects to app scheme.
+    // JS redirects fire Android intents (302 redirects don't).
+    (function () {
+      var search = window.location.search || '';
+      var hash = window.location.hash || '';
+      var params = search + hash;
+
+      // Try cacaoscan:// first (standalone APK), then exp:// (Expo Go)
+      window.location.href = 'cacaoscan://(auth)/login' + params;
+
+      setTimeout(function () {
+        window.location.href = 'exp://192.168.1.11:8081/--/' + params;
+      }, 1500);
+    })();
+  </script>
+</body>
+
+</html>

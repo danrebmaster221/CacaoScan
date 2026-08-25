@@ -368,13 +368,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
    */
   const signInWithGoogle = useCallback(async (): Promise<{ error: string | null }> => {
     try {
-      // Dynamically determine redirect URL based on environment
       let redirectUrl: string;
       if (Platform.OS === 'web') {
         redirectUrl = typeof window !== 'undefined' ? window.location.origin : '';
       } else {
-        // Use Linking.createURL for the redirect — works in both Expo Go and standalone
-        redirectUrl = Linking.createURL('');
+        // Linking.createURL generates the correct scheme per environment:
+        // - Development build / APK: cacaoscan://(auth)/login
+        // - Expo Go: exp://192.168.x.x:8081/--/(auth)/login
+        // Note: Google OAuth requires a development build (not Expo Go) because
+        // Chrome Custom Tabs cannot redirect to exp:// scheme on Android.
+        redirectUrl = Linking.createURL('(auth)/login');
       }
 
       console.log('[OAuth] Using redirect URL:', redirectUrl);
@@ -393,22 +396,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (Platform.OS === 'web') {
           return { error: 'Should have redirected natively' };
         } else {
-          // Log full auth URL for debugging redirect issues
-          console.log('[OAuth] Full auth URL:', data.url);
-          
-          // Extract and log the redirect_to from the auth URL
-          try {
-            const authUrlParsed = new URL(data.url);
-            console.log('[OAuth] redirect_to in URL:', authUrlParsed.searchParams.get('redirect_to'));
-          } catch {}
-
-          const result = await WebBrowser.openAuthSessionAsync(
-            data.url,
-            redirectUrl,
-          );
-          console.log('[OAuth] Auth session result:', JSON.stringify(result));
-
-          console.log('[OAuth] Auth result type:', result.type);
+          console.log('[OAuth] Opening auth session...');
+          const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
+          console.log('[OAuth] Auth session result type:', result.type);
 
           if (result.type === 'success' && result.url) {
             console.log('[OAuth] Callback URL received:', result.url);
@@ -418,21 +408,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               return { error: String(params.queryParams.error_description || 'OAuth failed') };
             }
             
-            // PKCE code exchange (primary flow)
+            // PKCE code exchange
             if (params.queryParams?.code) {
-              console.log('[OAuth] Exchanging PKCE code for session...');
+              console.log('[OAuth] Exchanging code for session...');
               const { error: sessionError } = await supabase.auth.exchangeCodeForSession(String(params.queryParams.code));
               if (sessionError) return { error: sessionError.message };
             } else if (result.url.includes('#access_token')) {
-              // Legacy Implicit Grant fallback
+              // Implicit grant fallback
               const hashMatch = result.url.match(/#access_token=([^&]+).*&refresh_token=([^&]+)/);
               if (hashMatch) {
                 await supabase.auth.setSession({ access_token: hashMatch[1], refresh_token: hashMatch[2] });
               }
             }
           } else if (result.type === 'cancel' || result.type === 'dismiss') {
-            console.log('[OAuth] User cancelled or dismissed the auth session');
-            return { error: null }; // User cancelled, not an error
+            return { error: null };
           }
         }
       }
