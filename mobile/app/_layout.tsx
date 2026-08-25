@@ -1,7 +1,7 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
@@ -55,12 +55,7 @@ function RootLayoutNav({ fontsLoaded }: { fontsLoaded: boolean }) {
   const { session, isLoading, pendingMFA, userProfile, user } = useAuth();
   const segments = useSegments();
   const router = useRouter();
-
-  useEffect(() => {
-    if (fontsLoaded && !isLoading) {
-      SplashScreen.hideAsync();
-    }
-  }, [fontsLoaded, isLoading]);
+  const [navReady, setNavReady] = useState(false);
 
   useEffect(() => {
     if (isLoading) return;
@@ -73,23 +68,32 @@ function RootLayoutNav({ fontsLoaded }: { fontsLoaded: boolean }) {
       router.replace('/(auth)/login' as any);
     } else if (session) {
       // Check Boot Guard: Are they authenticated but missing profile details?
-      // Primary source: user_metadata (always available, no RLS)
       const meta = user?.user_metadata;
       const hasMetaProfile = meta?.first_name && meta?.last_name && meta?.farm_location;
       const hasTableProfile = userProfile?.first_name && userProfile?.last_name && userProfile?.farm_location;
       const isMissingProfile = !hasMetaProfile && !hasTableProfile;
 
       if (isMissingProfile) {
-        // If they are missing profile data, force them to complete-profile screen
         if (!isCompleteProfileRoute) {
           router.replace('/(auth)/complete-profile' as any);
         }
       } else if (inAuthGroup && !pendingMFA && !isCompleteProfileRoute) {
-        // Signed in, complete profile, and MFA complete → redirect to main tabs
         router.replace('/(tabs)' as any);
       }
     }
-  }, [session, isLoading, segments, pendingMFA, router, userProfile, user]);
+
+    // Mark navigation as ready — correct route is now being shown
+    if (!navReady) setNavReady(true);
+  }, [session, isLoading, segments, pendingMFA, router, userProfile, user, navReady]);
+
+  // Only hide splash when fonts loaded, auth resolved, AND navigation settled
+  useEffect(() => {
+    if (fontsLoaded && !isLoading && navReady) {
+      // Small delay to let the route transition complete before revealing
+      const timer = setTimeout(() => SplashScreen.hideAsync(), 100);
+      return () => clearTimeout(timer);
+    }
+  }, [fontsLoaded, isLoading, navReady]);
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
