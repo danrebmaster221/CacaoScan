@@ -11,7 +11,7 @@
  * - #18: Brute force lockout timer display
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -24,6 +24,8 @@ import {
   ActivityIndicator,
   Image,
   Dimensions,
+  Keyboard,
+  Animated as RNAnimated,
   type TextInputProps,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
@@ -62,6 +64,7 @@ import { CacaoSeedConveyorBelt } from '@/components/auth/CacaoSeedConveyorBelt';
 
 const { height: SCREEN_H } = Dimensions.get('window');
 const HEADER_MIN = Math.max(300, SCREEN_H * 0.4);
+const HEADER_KEYBOARD = 120;
 
 const S = { xs: 8, sm: 16, md: 24, lg: 32 } as const;
 const PILL = 999;
@@ -142,20 +145,22 @@ function InputField({
   );
 }
 
-function FieldInput(props: TextInputProps) {
+const FieldInput = React.forwardRef<TextInput, TextInputProps>((props, ref) => {
   return (
     <TextInput
       {...props}
+      ref={ref}
       placeholderTextColor={UI.placeholder}
       underlineColorAndroid="transparent"
       style={[styles.fieldInput, props.style]}
     />
   );
-}
+});
+FieldInput.displayName = 'FieldInput';
 
-function CacaoHeader() {
+function CacaoHeader({ animatedHeight }: { animatedHeight: RNAnimated.Value }) {
   return (
-    <View style={styles.header}>
+    <RNAnimated.View style={[styles.header, { minHeight: animatedHeight }]}>
       <View style={styles.logoWrap}>
         <Image
           source={require('@/assets/images/logo2.png')}
@@ -164,7 +169,7 @@ function CacaoHeader() {
         />
       </View>
       <CacaoSeedConveyorBelt style={styles.conveyorBelt} />
-    </View>
+    </RNAnimated.View>
   );
 }
 
@@ -190,8 +195,29 @@ export default function LoginScreen() {
   const errorShake = useSharedValue(0);
   const toggleScale = useSharedValue(1);
 
+  // Keyboard-aware header animation
+  const headerHeight = useRef(new RNAnimated.Value(HEADER_MIN)).current;
+  const passwordRef = useRef<TextInput>(null);
+
   useEffect(() => {
     checkLockout();
+
+    // Animate header shrink/expand on keyboard show/hide
+    const showSub = Keyboard.addListener('keyboardDidShow', () => {
+      RNAnimated.timing(headerHeight, {
+        toValue: HEADER_KEYBOARD,
+        duration: 250,
+        useNativeDriver: false,
+      }).start();
+    });
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+      RNAnimated.timing(headerHeight, {
+        toValue: HEADER_MIN,
+        duration: 250,
+        useNativeDriver: false,
+      }).start();
+    });
+    return () => { showSub.remove(); hideSub.remove(); };
   }, []);
 
   useEffect(() => {
@@ -283,7 +309,7 @@ export default function LoginScreen() {
       <AuthCacaoFullScreenBackground />
 
       <View style={styles.layout}>
-        <CacaoHeader />
+        <CacaoHeader animatedHeight={headerHeight} />
 
         <View style={styles.cardBleed}>
           <View style={styles.cardShadow}>
@@ -357,6 +383,9 @@ export default function LoginScreen() {
                 keyboardType="email-address"
                 autoComplete="email"
                 editable={!isLocked}
+                returnKeyType="next"
+                onSubmitEditing={() => passwordRef.current?.focus()}
+                blurOnSubmit={false}
               />
             </InputField>
 
@@ -384,6 +413,7 @@ export default function LoginScreen() {
               }
             >
               <FieldInput
+                ref={passwordRef}
                 placeholder="Password"
                 value={password}
                 onChangeText={(val) => {
@@ -395,6 +425,8 @@ export default function LoginScreen() {
                 secureTextEntry={!showPassword}
                 autoComplete="password"
                 editable={!isLocked}
+                returnKeyType="done"
+                onSubmitEditing={handleLogin}
               />
             </InputField>
           </View>
