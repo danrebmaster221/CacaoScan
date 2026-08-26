@@ -4,13 +4,13 @@ This document serves as the high-level mapping of CacaoScan. It actively enforce
 
 ## 1. Top-Level System Overview
 The architecture is divided into three interconnected, yet highly decoupled zones:
-1. **IoT Hardware Zone (Physical):** Conveyor, ESP32-S3, IR Sensors, SG90 Gate Servos, IP Camera.
-2. **Edge Zone (Local Intranet):** Node.js Socket Manager + FastAPI YOLOv8 Instance. Performs intense computation locally without internet.
+1. **IoT Hardware Zone:** ESP32-S3 acts as the Primary Inference Engine using TFLite Micro. It makes the millisecond sorting decision locally.
+2. **Edge Zone (Local Server):** Node.js acts as a Data Aggregator and Image Archiver. The FastAPI instance is a Secondary/Validation Engine used for re-training models or handling high-res logging, but it is NOT in the critical path of the physical ejection.
 3. **Cloud/Client Zone (Internet):** Supabase (DB + Auth), Cloudinary (Dataset Archive), React Native App, Web Dashboard.
 
 ## 2. Design Methodology
 **Local Edge-Gateway Architecture:** 
-The system relies on localized decision-making. The Edge Server acts as the central brain formatting hardware protocols (I2C/Serial/WebSockets) into secure Cloud Sync HTTP payloads asynchronously. The physical sorting operation *never* awaits a cloud response.
+The system relies on localized decision-making embedded directly on the Microcontroller (ESP32-S3). The Edge Server acts as the central brain formatting hardware telemetry (I2C/Serial/WebSockets) into secure Cloud Sync HTTP payloads asynchronously. The physical sorting operation *never* awaits a server or cloud response.
 
 ## 3. Design Patterns
 - **Asynchronous Loop Pattern:** Firmware operates non-blocking; the conveyor continues running while HTTP calls fire asynchronously to the Edge model.
@@ -19,9 +19,8 @@ The system relies on localized decision-making. The Edge Server acts as the cent
 
 ## 4. Data Flow (Continuous Pipeline)
 1. **Start:** Farmer initializes batch on Mobile App -> Supabase saves `tblbatches` -> Local Server pulls batch state.
-2. **Execution:** Conveyor runs. IR Sensor interrupt fires when bean passes -> ESP32 requests IP Camera snapshot -> HTTP POST to Local AI.
-3. **Inference:** YOLOv8 local classification.
-4. **Calculated Discharge:** Physical distance from Camera to Bin is known. Edge/ESP calculates Time Delay (Distance / Belt Velocity). 
+2. **Execution:** Conveyor runs. IR Sensor interrupt fires when bean passes -> ESP32 requests IP Camera snapshot -> Local AI Inference (TFLite).
+3. **Calculated Discharge:** Physical distance from Camera to Bin is known. ESP32 calculates Time Delay (Distance / Belt Velocity). 
 5. **Actuation:** Hardware timer counts down -> Servo actuates -> bean falls into distinct bin.
 6. **Reporting:** Edge Server syncs inference telemetry to Supabase. Mobile app pulls live stats.
 

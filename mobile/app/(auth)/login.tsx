@@ -315,192 +315,192 @@ export default function LoginScreen() {
           <View style={styles.cardShadow}>
             <View style={styles.card}>
               <Animated.View entering={FadeInDown.duration(480).springify()} style={styles.cardContent}>
-          <View style={styles.heroText}>
-            <Text style={styles.formTitle}>Welcome back</Text>
-            <Text style={styles.formSubtitle}>Sign in to your account</Text>
-          </View>
+                <View style={styles.heroText}>
+                  <Text style={styles.formTitle}>Welcome back</Text>
+                  <Text style={styles.formSubtitle}>Sign in to your account</Text>
+                </View>
 
-          {isLocked && (
-            <Animated.View entering={FadeInDown.duration(320)} style={styles.lockoutBanner}>
-              <View style={styles.lockoutHeader}>
-                <AlertCircleIcon size={16} color={UI.error} accent={UI.warning} />
-                <Text style={styles.lockoutTitle}>Account Temporarily Locked</Text>
-              </View>
-              <Text style={styles.lockoutTimer}>
-                Try again in {formatLockoutTime(lockoutSeconds)}
-              </Text>
-            </Animated.View>
-          )}
-
-          {error && (
-            <Animated.View
-              entering={FadeIn.duration(200)}
-              style={[
-                styles.errorBanner, 
-                errorStyle, 
-                showResend ? { flexDirection: 'column', alignItems: 'stretch', paddingVertical: 14 } : {}
-              ]}
-            >
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: S.xs }}>
-                <AlertCircleIcon size={14} color={UI.error} accent={UI.error} />
-                <Text style={styles.errorText}>{error}</Text>
-              </View>
-              {showResend && (
-                <TouchableOpacity 
-                  style={{ marginTop: 12, paddingVertical: 10, backgroundColor: UI.card, borderRadius: PILL }}
-                  onPress={async () => {
-                     const { error: resendErr } = await resendOTP(email.trim());
-                     if (resendErr) {
-                       setError(resendErr);
-                     } else {
-                       router.push({ pathname: '/(auth)/verify-otp', params: { email: email.trim() } } as any);
-                     }
-                  }}
-                >
-                  <Text style={{ color: UI.ctaStart, textAlign: 'center', fontFamily: Typography.fontFamily.semiBold }}>
-                    Resend Verification Code
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </Animated.View>
-          )}
-
-          <View style={styles.formFields}>
-            <InputField
-              focused={emailFocused}
-              icon={<MailIcon size={20} color={emailFocused ? UI.iconFocus : UI.icon} />}
-            >
-              <FieldInput
-                placeholder="Email"
-                value={email}
-                onChangeText={(val) => {
-                  setEmail(val);
-                  setError(null);
-                }}
-                onFocus={() => setEmailFocused(true)}
-                onBlur={() => setEmailFocused(false)}
-                autoCapitalize="none"
-                keyboardType="email-address"
-                autoComplete="email"
-                editable={!isLocked}
-                returnKeyType="next"
-                onSubmitEditing={() => passwordRef.current?.focus()}
-                blurOnSubmit={false}
-              />
-            </InputField>
-
-            <InputField
-              focused={passwordFocused}
-              icon={<LockIcon size={20} color={passwordFocused ? UI.iconFocus : UI.icon} />}
-              trailing={
-                <AnimatedPressable
-                  style={[styles.eyeBtn, toggleStyle]}
-                  onPress={() => setShowPassword(!showPassword)}
-                  onPressIn={() => {
-                    toggleScale.value = withSpring(0.9, { damping: 18, stiffness: 400 });
-                  }}
-                  onPressOut={() => {
-                    toggleScale.value = withSpring(1, { damping: 14, stiffness: 280 });
-                  }}
-                  hitSlop={6}
-                >
-                  {showPassword ? (
-                    <EyeConcealIcon size={20} color={UI.iconFocus} />
-                  ) : (
-                    <EyeRevealIcon size={20} color={UI.iconFocus} />
-                  )}
-                </AnimatedPressable>
-              }
-            >
-              <FieldInput
-                ref={passwordRef}
-                placeholder="Password"
-                value={password}
-                onChangeText={(val) => {
-                  setPassword(val);
-                  setError(null);
-                }}
-                onFocus={() => setPasswordFocused(true)}
-                onBlur={() => setPasswordFocused(false)}
-                secureTextEntry={!showPassword}
-                autoComplete="password"
-                editable={!isLocked}
-                returnKeyType="done"
-                onSubmitEditing={handleLogin}
-              />
-            </InputField>
-          </View>
-
-          <TouchableOpacity
-            onPress={() => router.push('/(auth)/forgot-password' as any)}
-            style={styles.forgotButton}
-            activeOpacity={0.5}
-          >
-            <Text style={styles.forgotText}>Forgot password?</Text>
-          </TouchableOpacity>
-
-          <Animated.View style={[styles.ctaWrap, ctaStyle]}>
-            <Pressable
-              onPress={handleLogin}
-              onPressIn={() => {
-                ctaScale.value = withSpring(0.97, { damping: 20, stiffness: 320 });
-              }}
-              onPressOut={() => {
-                ctaScale.value = withSpring(1, { damping: 14, stiffness: 220 });
-              }}
-              disabled={loading || isLocked}
-              style={(loading || isLocked) && styles.ctaDisabled}
-            >
-              <LinearGradient
-                colors={[UI.ctaStart, UI.ctaMid, UI.ctaEnd]}
-                locations={[0, 0.5, 1]}
-                start={{ x: 0, y: 0.5 }}
-                end={{ x: 1, y: 0.5 }}
-                style={styles.ctaButton}
-              >
-                {loading ? (
-                  <ActivityIndicator color={UI.ctaText} />
-                ) : (
-                  <Text style={styles.ctaText}>Sign in</Text>
+                {isLocked && (
+                  <Animated.View entering={FadeInDown.duration(320)} style={styles.lockoutBanner}>
+                    <View style={styles.lockoutHeader}>
+                      <AlertCircleIcon size={16} color={UI.error} accent={UI.warning} />
+                      <Text style={styles.lockoutTitle}>Account Temporarily Locked</Text>
+                    </View>
+                    <Text style={styles.lockoutTimer}>
+                      Try again in {formatLockoutTime(lockoutSeconds)}
+                    </Text>
+                  </Animated.View>
                 )}
-              </LinearGradient>
-            </Pressable>
-          </Animated.View>
 
-          {attempts > 0 && attempts < 5 && !isLocked && (
-            <View style={styles.attemptRow}>
-              <AlertCircleIcon size={13} color={UI.warning} accent={UI.warning} />
-              <Text style={styles.attemptText}>
-                {5 - attempts} attempt{5 - attempts !== 1 ? 's' : ''} remaining
-              </Text>
-            </View>
-          )}
+                {error && (
+                  <Animated.View
+                    entering={FadeIn.duration(200)}
+                    style={[
+                      styles.errorBanner,
+                      errorStyle,
+                      showResend ? { flexDirection: 'column', alignItems: 'stretch', paddingVertical: 14 } : {}
+                    ]}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: S.xs }}>
+                      <AlertCircleIcon size={14} color={UI.error} accent={UI.error} />
+                      <Text style={styles.errorText}>{error}</Text>
+                    </View>
+                    {showResend && (
+                      <TouchableOpacity
+                        style={{ marginTop: 12, paddingVertical: 10, backgroundColor: UI.card, borderRadius: PILL }}
+                        onPress={async () => {
+                          const { error: resendErr } = await resendOTP(email.trim());
+                          if (resendErr) {
+                            setError(resendErr);
+                          } else {
+                            router.push({ pathname: '/(auth)/verify-otp', params: { email: email.trim() } } as any);
+                          }
+                        }}
+                      >
+                        <Text style={{ color: UI.ctaStart, textAlign: 'center', fontFamily: Typography.fontFamily.semiBold }}>
+                          Resend Verification Code
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </Animated.View>
+                )}
 
-          <View style={styles.dividerRow}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>Or sign in with</Text>
-            <View style={styles.dividerLine} />
-          </View>
+                <View style={styles.formFields}>
+                  <InputField
+                    focused={emailFocused}
+                    icon={<MailIcon size={20} color={emailFocused ? UI.iconFocus : UI.icon} />}
+                  >
+                    <FieldInput
+                      placeholder="Email"
+                      value={email}
+                      onChangeText={(val) => {
+                        setEmail(val);
+                        setError(null);
+                      }}
+                      onFocus={() => setEmailFocused(true)}
+                      onBlur={() => setEmailFocused(false)}
+                      autoCapitalize="none"
+                      keyboardType="email-address"
+                      autoComplete="email"
+                      editable={!isLocked}
+                      returnKeyType="next"
+                      onSubmitEditing={() => passwordRef.current?.focus()}
+                      blurOnSubmit={false}
+                    />
+                  </InputField>
 
-          <TouchableOpacity
-            style={styles.googlePill}
-            onPress={signInWithGoogle}
-            activeOpacity={0.75}
-          >
-            <GoogleGlyph size={20} />
-            <Text style={styles.googleText}>Continue with Google</Text>
-          </TouchableOpacity>
+                  <InputField
+                    focused={passwordFocused}
+                    icon={<LockIcon size={20} color={passwordFocused ? UI.iconFocus : UI.icon} />}
+                    trailing={
+                      <AnimatedPressable
+                        style={[styles.eyeBtn, toggleStyle]}
+                        onPress={() => setShowPassword(!showPassword)}
+                        onPressIn={() => {
+                          toggleScale.value = withSpring(0.9, { damping: 18, stiffness: 400 });
+                        }}
+                        onPressOut={() => {
+                          toggleScale.value = withSpring(1, { damping: 14, stiffness: 280 });
+                        }}
+                        hitSlop={6}
+                      >
+                        {showPassword ? (
+                          <EyeConcealIcon size={20} color={UI.iconFocus} />
+                        ) : (
+                          <EyeRevealIcon size={20} color={UI.iconFocus} />
+                        )}
+                      </AnimatedPressable>
+                    }
+                  >
+                    <FieldInput
+                      ref={passwordRef}
+                      placeholder="Password"
+                      value={password}
+                      onChangeText={(val) => {
+                        setPassword(val);
+                        setError(null);
+                      }}
+                      onFocus={() => setPasswordFocused(true)}
+                      onBlur={() => setPasswordFocused(false)}
+                      secureTextEntry={!showPassword}
+                      autoComplete="password"
+                      editable={!isLocked}
+                      returnKeyType="done"
+                      onSubmitEditing={handleLogin}
+                    />
+                  </InputField>
+                </View>
 
-          <View style={styles.footer}>
-            <Text style={styles.footerText}>Don&apos;t have an account? </Text>
-            <TouchableOpacity
-              onPress={() => router.push('/(auth)/register' as any)}
-              activeOpacity={0.5}
-            >
-              <Text style={styles.footerLink}>Create account</Text>
-            </TouchableOpacity>
-          </View>
-        </Animated.View>
+                <TouchableOpacity
+                  onPress={() => router.push('/(auth)/forgot-password' as any)}
+                  style={styles.forgotButton}
+                  activeOpacity={0.5}
+                >
+                  <Text style={styles.forgotText}>Forgot password?</Text>
+                </TouchableOpacity>
+
+                <Animated.View style={[styles.ctaWrap, ctaStyle]}>
+                  <Pressable
+                    onPress={handleLogin}
+                    onPressIn={() => {
+                      ctaScale.value = withSpring(0.97, { damping: 20, stiffness: 320 });
+                    }}
+                    onPressOut={() => {
+                      ctaScale.value = withSpring(1, { damping: 14, stiffness: 220 });
+                    }}
+                    disabled={loading || isLocked}
+                    style={(loading || isLocked) && styles.ctaDisabled}
+                  >
+                    <LinearGradient
+                      colors={[UI.ctaStart, UI.ctaMid, UI.ctaEnd]}
+                      locations={[0, 0.5, 1]}
+                      start={{ x: 0, y: 0.5 }}
+                      end={{ x: 1, y: 0.5 }}
+                      style={styles.ctaButton}
+                    >
+                      {loading ? (
+                        <ActivityIndicator color={UI.ctaText} />
+                      ) : (
+                        <Text style={styles.ctaText}>Sign in</Text>
+                      )}
+                    </LinearGradient>
+                  </Pressable>
+                </Animated.View>
+
+                {attempts > 0 && attempts < 5 && !isLocked && (
+                  <View style={styles.attemptRow}>
+                    <AlertCircleIcon size={13} color={UI.warning} accent={UI.warning} />
+                    <Text style={styles.attemptText}>
+                      {5 - attempts} attempt{5 - attempts !== 1 ? 's' : ''} remaining
+                    </Text>
+                  </View>
+                )}
+
+                <View style={styles.dividerRow}>
+                  <View style={styles.dividerLine} />
+                  <Text style={styles.dividerText}>Or sign in with</Text>
+                  <View style={styles.dividerLine} />
+                </View>
+
+                <TouchableOpacity
+                  style={styles.googlePill}
+                  onPress={signInWithGoogle}
+                  activeOpacity={0.75}
+                >
+                  <GoogleGlyph size={20} />
+                  <Text style={styles.googleText}>Continue with Google</Text>
+                </TouchableOpacity>
+
+                <View style={styles.footer}>
+                  <Text style={styles.footerText}>Don&apos;t have an account? </Text>
+                  <TouchableOpacity
+                    onPress={() => router.push('/(auth)/register' as any)}
+                    activeOpacity={0.5}
+                  >
+                    <Text style={styles.footerLink}>Create account</Text>
+                  </TouchableOpacity>
+                </View>
+              </Animated.View>
             </View>
           </View>
         </View>

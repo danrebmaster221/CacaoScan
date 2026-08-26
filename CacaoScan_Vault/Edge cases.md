@@ -78,3 +78,7 @@ Yes, the ESP32-S3 can easily handle this workload, **but only if the software is
 **Edge Case H: "Ghost Triggers" (IR Sensor Noise)**
 - *The Risk:* Flyaway dust, falling debris, or insects passing in front of the IR trigger sensor can break the beam. This sends a "ghost trigger" to the ESP32, which will capture a photo of an empty belt, wasting CPU cycles running inference on nothing [21].
 - *The Solution (Software De-bouncing):* Implement a temporal filter in your C++ firmware on Core 0. The IR beam must remain broken for at least 30 milliseconds (the average time it takes for a real cacao bean to pass through) before the ESP32 registers a valid bean trigger. Any interrupt shorter than 30ms is ignored as noise.
+
+**Edge Case I: "Local Network Dropout"**
+- *The Risk:* If the Wi-Fi connection between the ESP32-S3 and the Local Node.js server fails, the sorting results cannot be sent to Supabase.
+- *The Solution (Internal Flash Spooling):* The ESP32-S3's 16MB Flash (configured in your IDE) will store up to 500 classification records in a local SPIFFS/LittleFS queue. Once the connection is restored, the ESP32 "pushes" the queued data to the server asynchronously. Sorting continues without interruption.

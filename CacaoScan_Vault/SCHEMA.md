@@ -15,6 +15,8 @@ This document details the PostgreSQL architecture hosted on Supabase, establishi
   - `id` (UUID, PK), `user_email` (TXT), `login_status` (TXT), `ip_address` (TXT), `device_info` (TXT), `is_suspicious` (BOOL), `created_at` (TZ).
 - **`tblmachine_configs`**: Stores physical calibration parameters for the continuous-stream timing algorithms.
   - `id` (UUID, PK), `machine_id` (TXT, FK), `belt_speed_cm_s` (REAL), `bin_1_distance_cm` (REAL), `bin_2_distance_cm` (REAL), `bin_3_distance_cm` (REAL), `bin_4_distance_cm` (REAL), `bin_5_distance_cm` (REAL), `updated_at` (TZ).
+  - **ADD: `config_version` (INT)** — The ESP32 checks this number. If it increases, it pulls the new distances/speeds.
+  - **ADD: `ejection_pulse_ms` (INT)** — How long the SG90 paddle stays extended (Default: 300ms).
 
 ## 2. Entity-Relationship Diagram (ERD)
 - `tblprofiles` (1) ---> (M) `tblbatches`

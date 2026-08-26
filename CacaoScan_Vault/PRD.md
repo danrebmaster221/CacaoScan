@@ -17,7 +17,7 @@ This PRD establishes the absolute boundaries of the CacaoScan project, maintaini
 ## 2. Minimum Viable Product (MVP)
 The bare-minimum features required for launch:
 1. **Continuous Single-File Pipeline:** Rapid O(n) image capture and delayed hardware gating without stopping the conveyor.
-2. **Local AI Hub:** Edge workstation achieving <800ms total inference + routing decision time.
+2. **Local AI Hub:** Edge workstation (ESP32-S3 primary) achieving ≤ 200ms total inference + routing decision time.
 3. **Operator Control:** Mobile app interface allowing farmers to register machines, initiate batches, and trigger manual overrides (Emergency Stop).
 4. **Audit & Traceability:** Logging of every classified bean and automatic digital certification upon batch completion.
 
@@ -37,8 +37,10 @@ The bare-minimum features required for launch:
 - **Heap Protection:** All memory allocations for the neural network are declared globally at system bootup. The AI is prevented from dynamically requesting memory during operations, eliminating the risk of memory leaks, heap fragmentation, or Out-Of-Memory (OOM) crashes during continuous, multi-hour operations.
 
 ## 5. Success Metrics
+- **Inference Speed:** Edge-AI latency per bean ≤ 200ms (Benchmark: 145ms-150ms).
+- **Throughput:** 70 beans per 120 seconds (2 minutes).
+- **System Recovery:** Auto-reconnect to Direct AP mode within 5 seconds of signal loss.
 - **Sorting Accuracy:** >95% validation precision against expert grading.
-- **Throughput Speed:** Capable of processing at a linear-time O(n) rate without stalling mechanisms.
 - **Uptime/Reliability:** 99.9% local server availability regardless of farm Wi-Fi degradation.
 
 ## 6. AI-Assisted Optimization (Feature Ideation Guidelines)

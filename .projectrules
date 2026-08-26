@@ -1,0 +1,41 @@
+# CacaoScan Project Rules & Technical Standards
+
+## 1. Project Context
+- **Product**: AIoT-Powered Automated Cacao Bean Classifier.
+- **Mission**: Move from Capstone 1 (Batch) to Capstone 2 (Continuous O(n) Pipeline).
+- **Core Strategy**: Local Edge AI (No Cloud Inference during sorting).
+
+## 2. Hardware Architecture (ESP32-S3 N16R8)
+- **Processor**: Dual-Core Xtensa LX7 (240MHz).
+- **Memory**: 16MB Flash, 8MB PSRAM (Octal SPI).
+- **Threading Model**: 
+    - **Core 0 (Real-Time)**: Handles IR interrupts, motor PWM, and the FIFO Timing Queue.
+    - **Core 1 (AI Brain)**: Runs TFLite Micro inference.
+- **Rules**: 
+    - Never use `delay()` in production firmware; use non-blocking `millis()` logic.
+    - All AI math must be pre-allocated in a 4MB Static Tensor Arena to prevent OOM.
+    - Use OPI PSRAM for model weights.
+
+## 3. Software Architecture (The Pipeline)
+- **Complexity**: O(n) Linear Throughput.
+- **Inference**: YOLOv8n Quantized to TFLite INT8 (Target Latency: <200ms).
+- **Workflow**: Trigger (IR1) -> Snapshot (OV3660) -> Classify (Core 1) -> Queue (FIFO) -> Actuate (Servo 1-5).
+- **Backend**: Local Node.js server acts as a WebSocket bridge between hardware and Supabase.
+- **Database**: Supabase (PostgreSQL). Use Row-Level Security (RLS) for all tables.
+
+## 4. Coding Standards
+- **Firmware (C++/Arduino)**: 
+    - Use `EloquentTinyML` for model deployment.
+    - Use `ESP32Servo` for high-accuracy PWM.
+- **Mobile (React Native/Expo)**: 
+    - TypeScript First. No usage of `any`.
+    - Abstract Supabase logic into `services/` directory using the Repository Pattern.
+- **General**: 
+    - **DRY**: Refactor logic repeated 3+ times into reusable hooks or utilities.
+    - **KISS**: Keep nesting levels < 3. 
+    - **SOLID**: Views should only handle UI; Hooks handle logic.
+
+## 5. Metadata Reference
+- Always refer to [[ARCHITECTURE.md]] for data flow.
+- Always refer to [[SCHEMA.md]] for database field names.
+- Always refer to [[Hardware_Pins.md]] for physical wiring.

@@ -19,3 +19,7 @@ The absolute programming standard for all developers and AI extensions interacti
 ## 4. Path and Typing Strictness
 - **Absolute Imports:** Use Webpack/Babel absolute paths (`@/components`, `@/services`) where configured, strictly avoiding spaghetti relative paths (`../../../`).
 - **TypeScript First:** All parameters, returns, and component props must define explicit Interfaces/Types. Usage of the `any` type is considered a build-breaking failure in this project.
+
+## 5. Embedded Constraints (C++)
+- **Static Allocation Only:** Any function interacting with the EloquentTinyML library must use the pre-allocated tensor_arena. No usage of new or malloc is allowed inside the loop() to prevent heap fragmentation.
+- **Core Locking:** Hardware interrupts (IR Sensors) must be attached to Core 0 to ensure zero-latency pulse detection.
