@@ -25,15 +25,8 @@ export default function BatchDrillDownScreen() {
         .order('classified_at', { ascending: false });
 
       if (error) throw error;
-      
-      // Merge mock visual test data for presentation if DB rows lack image_url
-      const mapped = (data || []).map((row, index) => ({
-        ...row,
-        // Fallback for presentation since live images might not be uploaded yet
-        image_url: row.image_url || require('../../../assets/images/example_image.jpg'),
-      }));
-      
-      setClassifications(mapped);
+
+      setClassifications(data || []);
     } catch (err) {
       console.error(err);
     } finally {
@@ -75,14 +68,20 @@ export default function BatchDrillDownScreen() {
 
   const renderItem = ({ item }: { item: any }) => {
     const isRejected = item.quality === 'rejected';
-    
+    const variety = item.variety || item.class || '—';
+    const quality = item.quality || item.class || '—';
+
     return (
       <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-        <View style={styles.imageWrapper}>
-           <Image 
-             source={typeof item.image_url === 'string' ? { uri: item.image_url } : item.image_url} 
-             style={styles.beanImage} 
-           />
+        <View style={[styles.imageWrapper, { backgroundColor: theme.border, alignItems: 'center', justifyContent: 'center' }]}>
+           {item.image_url ? (
+             <Image
+               source={{ uri: item.image_url }}
+               style={styles.beanImage}
+             />
+           ) : (
+             <Text style={{ fontSize: 22 }}>🫘</Text>
+           )}
            {item.is_flagged && (
              <View style={styles.flagBadge}>
                <Text style={styles.flagText}>⚠️ Flagged</Text>
@@ -90,9 +89,11 @@ export default function BatchDrillDownScreen() {
            )}
         </View>
         <View style={styles.info}>
-          <Text style={[styles.variety, { color: theme.text }]}>Variety: {item.variety.charAt(0).toUpperCase() + item.variety.slice(1)}</Text>
+          <Text style={[styles.variety, { color: theme.text }]}>
+            Variety: {String(variety).charAt(0).toUpperCase() + String(variety).slice(1)}
+          </Text>
           <Text style={[styles.quality, { color: isRejected ? theme.danger : theme.textSecondary }]}>
-            Quality: {item.quality.replace('_', ' ').toUpperCase()}
+            Quality: {String(quality).replace(/_/g, ' ').toUpperCase()}
           </Text>
         </View>
         <TouchableOpacity 

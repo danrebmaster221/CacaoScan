@@ -163,11 +163,19 @@ export default function VisionCalibrationScreen() {
           </View>
           <View style={[styles.previewBox, { backgroundColor: '#1a1a1a', borderColor: theme.border }]}>
             <View style={{ width: '100%', height: '100%' }}>
-              <Image 
-                source={frameUri ? { uri: frameUri } : require('@/assets/images/example_image.jpg')} 
-                style={styles.frameImage} 
-                resizeMode="cover" 
-              />
+              {frameUri ? (
+                <Image
+                  source={{ uri: frameUri }}
+                  style={styles.frameImage}
+                  resizeMode="cover"
+                />
+              ) : (
+                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: Typography.fontSize.sm }}>
+                    No camera frame yet
+                  </Text>
+                </View>
+              )}
                 {/* ROI Overlay Boxes */}
                 {rois.map((roi, i) => (
                   <View

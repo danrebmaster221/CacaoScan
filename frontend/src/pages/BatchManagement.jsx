@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { jsPDF } from 'jspdf';
 import {
   Search,
@@ -10,58 +10,75 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { supabase } from '../services/supabase';
 
-/* ── mock data ─────────────────────────────── */
-const BATCHES = Array.from({ length: 18 }, (_, i) => {
-  const rejectedRate = Math.floor(Math.random() * 8) + 1; // 1 to 8%
-  const isCompliant = rejectedRate <= 6;
-  const grade = isCompliant ? (Math.random() > 0.4 ? 'Export A' : 'Export B') : 'Standard';
-  const total = Math.floor(800 + Math.random() * 400);
-
-  return {
-    id: `BN-${9000 + i}`,
-    date: `2026-07-0${7 - (i % 7)}`,
-    totalBeans: total,
-    variety: ['Trinitario', 'Criollo', 'Forastero'][i % 3],
-    grade,
-    confidence: Math.floor(88 + Math.random() * 11), // 88 to 98%
-    pns: isCompliant,
-    rejected: rejectedRate,
-    // Model A Defect Breakdown
-    moldy: Math.floor(total * (rejectedRate * 0.4 / 100)),
-    slaty: Math.floor(total * (rejectedRate * 0.5 / 100)),
-    shriveled: Math.floor(total * (rejectedRate * 0.1 / 100)),
-    // Model B Variety Breakdown (if Trinitario is dominant, small bits of others)
-    varCriollo: Math.floor(Math.random() * 15),
-    varForastero: Math.floor(Math.random() * 25),
-    images: [
-      'https://images.unsplash.com/photo-1606312619070-d48b4c652a52?w=200&h=200&fit=crop',
-      'https://images.unsplash.com/photo-1599599810694-b5b37304c041?w=200&h=200&fit=crop',
-      'https://images.unsplash.com/photo-1610611424854-5e07b4926176?w=200&h=200&fit=crop',
-    ],
-  };
-});
 const PAGE_SIZE = 8;
 
-/* ── PDF generator ─────────────────────────── */
+function dominantVariety(batch) {
+  const scores = [
+    ['Criollo', batch.criollo_count || 0],
+    ['Forastero', batch.forastero_count || 0],
+    ['Trinitario', batch.trinitario_count || 0],
+  ].sort((a, b) => b[1] - a[1]);
+  return scores[0][1] > 0 ? scores[0][0] : '—';
+}
+
+function deriveGrade(batch) {
+  const total = batch.total_beans || 0;
+  if (total === 0) return 'Standard';
+  const exportRate = ((batch.export_grade_count || 0) / total) * 100;
+  const rejectedRate = ((batch.rejected_count || 0) / total) * 100;
+  if (rejectedRate > 6) return 'Standard';
+  if (exportRate >= 80) return 'Export A';
+  if (exportRate >= 60) return 'Export B';
+  return 'Standard';
+}
+
+function mapBatch(row) {
+  const total = row.total_beans || 0;
+  const rejectedRate = total > 0 ? Math.round(((row.rejected_count || 0) / total) * 100) : 0;
+  const exportRate = total > 0 ? Math.round(((row.export_grade_count || 0) / total) * 100) : 0;
+  return {
+    id: row.id,
+    label: row.batch_name || `BN-${String(row.id).slice(0, 8).toUpperCase()}`,
+    date: row.completed_at || row.started_at || row.created_at
+      ? new Date(row.completed_at || row.started_at || row.created_at).toISOString().slice(0, 10)
+      : '—',
+    totalBeans: total,
+    variety: dominantVariety(row),
+    grade: deriveGrade(row),
+    confidence: exportRate,
+    pns: rejectedRate <= 6,
+    rejected: rejectedRate,
+    moldy: 0,
+    slaty: 0,
+    shriveled: 0,
+    varCriollo: row.criollo_count || 0,
+    varForastero: row.forastero_count || 0,
+    varTrinitario: row.trinitario_count || 0,
+    exportCount: row.export_grade_count || 0,
+    dryingCount: row.needs_drying_count || 0,
+    rejectedCount: row.rejected_count || 0,
+    images: [],
+    machineId: row.machine_id || '—',
+  };
+}
+
 function downloadCertificate(batch) {
   const doc = new jsPDF();
   const w = doc.internal.pageSize.getWidth();
   const marginLeft = 20;
 
-  // Header Background
   doc.setFillColor(62, 39, 35);
   doc.rect(0, 0, w, 40, 'F');
-  
-  // Header Text
   doc.setTextColor(255, 252, 248);
   doc.setFontSize(14);
   doc.text('CACAOSCAN CENTRAL | FARMS OPERATIONS COMMAND', w / 2, 16, { align: 'center' });
   doc.setFontSize(18);
   doc.setFont(undefined, 'bold');
   doc.text('CACAOSCAN BATCH QUALITY CERTIFICATE', w / 2, 26, { align: 'center' });
-  
-  // Reset text color for body
+
   doc.setTextColor(62, 39, 35);
   let y = 55;
 
@@ -83,92 +100,50 @@ function downloadCertificate(batch) {
     y += 6;
   };
 
-  // [SECTION 1: BATCH TRACEABILITY]
   addSectionHeader('[SECTION 1: BATCH TRACEABILITY]');
-  addLine('Batch ID:', batch.id);
-  addLine('Farmer/Owner:', 'CacaoScan Platform Operator');
-  addLine('Farm Location:', 'Boalan, Zamboanga City');
+  addLine('Batch ID:', batch.label);
   addLine('Processing Date:', batch.date);
+  addLine('Machine ID:', batch.machineId);
   y += 6;
 
-  // [SECTION 2: AI ANALYSIS SUMMARY]
   addSectionHeader('[SECTION 2: AI ANALYSIS SUMMARY]');
   addLine('Total Volume:', `${batch.totalBeans} Beans`);
-
-  // Calculate dominant variety %
-  const otherVars = batch.varCriollo + batch.varForastero;
-  const domCount = batch.totalBeans - otherVars;
-  const domPercent = ((domCount / batch.totalBeans) * 100).toFixed(1);
-  
-  addLine('Dominant Variety:', `${batch.variety} (${domPercent}%) | Criollo: ${batch.varCriollo} | Forastero: ${batch.varForastero}`);
+  addLine('Dominant Variety:', batch.variety);
+  addLine('Criollo / Forastero / Trinitario:', `${batch.varCriollo} / ${batch.varForastero} / ${batch.varTrinitario}`);
   addLine('Quality Classification:', batch.grade);
   addLine('PNS/BAFS 58:2019 Status:', batch.pns ? 'COMPLIANT' : 'NON-COMPLIANT');
   y += 6;
 
-  // [SECTION 3: DETAILED METRICS]
   addSectionHeader('[SECTION 3: DETAILED METRICS]');
   y += 2;
-  
-  // Table Header
   doc.setFontSize(9);
   doc.setFont(undefined, 'bold');
   doc.text('Category', marginLeft + 2, y);
-  doc.text('Percentage', marginLeft + 50, y);
   doc.text('Count', marginLeft + 90, y);
-  doc.text('AI Confidence', marginLeft + 130, y);
   doc.line(marginLeft, y + 2, w - marginLeft, y + 2);
   y += 8;
-
-  // Table Rows (Mocked splits)
-  const rejectedCount = Math.round((batch.rejected / 100) * batch.totalBeans);
-  const acceptedCount = batch.totalBeans - rejectedCount;
-
   doc.setFont(undefined, 'normal');
-  // Row 1
-  doc.text('Export Grade', marginLeft + 2, y);
-  doc.text(`${100 - batch.rejected}%`, marginLeft + 50, y);
-  doc.text(`${acceptedCount}`, marginLeft + 90, y);
-  doc.text(`${batch.confidence + 1.2}%`, marginLeft + 130, y);
-  y += 6;
-  // Row 2
-  doc.text('Needs Drying', marginLeft + 2, y);
-  doc.text(`0%`, marginLeft + 50, y);
-  doc.text(`0`, marginLeft + 90, y);
-  doc.text(`0%`, marginLeft + 130, y);
-  y += 6;
-  // Row 3
-  doc.text('Rejected', marginLeft + 2, y);
-  doc.text(`${batch.rejected}%`, marginLeft + 50, y);
-  doc.text(`${rejectedCount}`, marginLeft + 90, y);
-  doc.text(`${(batch.confidence - 2.5).toFixed(1)}%`, marginLeft + 130, y);
-  y += 12;
+  [
+    ['Export Grade', batch.exportCount],
+    ['Needs Drying', batch.dryingCount],
+    ['Rejected', batch.rejectedCount],
+  ].forEach(([label, count]) => {
+    doc.text(label, marginLeft + 2, y);
+    doc.text(String(count), marginLeft + 90, y);
+    y += 6;
+  });
 
-  // [SECTION 4: REJECTION AUDIT]
-  addSectionHeader('[SECTION 4: REJECTION AUDIT (MODEL B)]');
-  doc.setFontSize(10);
-  doc.setFont(undefined, 'normal');
-  doc.text(`• Mold detected: ${batch.moldy} units`, marginLeft + 2, y);
-  y += 6;
-  doc.text(`• Slaty/Unfermented: ${batch.slaty} units`, marginLeft + 2, y);
-  y += 6;
-  doc.text(`• Shriveled/Broken: ${batch.shriveled} units`, marginLeft + 2, y);
-  
-  // [FOOTER]
-  y = 260; // Push to bottom
+  y = 260;
   doc.setDrawColor(161, 136, 127);
   doc.line(marginLeft, y, w - marginLeft, y);
   y += 6;
   doc.setFontSize(8);
   doc.setTextColor(109, 76, 65);
-  
-  const footerText = 'This document is a digital representation of AI-Vision analysis and is compliant with Philippine Cacao Standards. Verifiable via Machine ID: SCANNER-01. Generated: ' + new Date().toLocaleDateString();
-  const splitFooter = doc.splitTextToSize(footerText, w - (marginLeft * 2));
-  doc.text(splitFooter, w / 2, y, { align: 'center' });
-
-  doc.save(`CacaoScan_Certificate_${batch.id}.pdf`);
+  const footerText = `Digital AI-Vision batch certificate. Generated: ${new Date().toLocaleDateString()}`;
+  doc.text(doc.splitTextToSize(footerText, w - (marginLeft * 2)), w / 2, y, { align: 'center' });
+  doc.save(`CacaoScan_Certificate_${batch.label}.pdf`);
 }
 
-/* ── Audit Gallery Modal ───────────────────── */
 function AuditGallery({ batch, onClose }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
@@ -179,43 +154,75 @@ function AuditGallery({ batch, onClose }) {
         <button onClick={onClose} className="absolute right-4 top-4 rounded-full p-1 text-[#A1887F] hover:bg-[#FAF0E6]">
           <X className="h-5 w-5" />
         </button>
-        <h3 className="mb-1 text-lg font-bold text-[#3E2723]">Visual Audit — {batch.id}</h3>
+        <h3 className="mb-1 text-lg font-bold text-[#3E2723]">Visual Audit — {batch.label}</h3>
         <p className="mb-5 text-sm text-[#A1887F]">{batch.variety} • {batch.date}</p>
-        <div className="grid grid-cols-3 gap-3">
-          {batch.images.map((src, i) => (
-            <img key={i} src={src} alt={`Bean sample ${i + 1}`} className="h-28 w-full rounded-xl border border-[#A1887F]/10 object-cover shadow-sm" />
-          ))}
-        </div>
-        <p className="mt-4 text-center text-xs text-[#BCAAA4]">Showing {batch.images.length} flagged samples from this batch</p>
+        {batch.images.length === 0 ? (
+          <p className="py-10 text-center text-sm text-[#BCAAA4]">No archived bean images for this batch.</p>
+        ) : (
+          <div className="grid grid-cols-3 gap-3">
+            {batch.images.map((src, i) => (
+              <img key={i} src={src} alt={`Bean sample ${i + 1}`} className="h-28 w-full rounded-xl border border-[#A1887F]/10 object-cover shadow-sm" />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-/* ── Main Component ────────────────────────── */
 export default function BatchManagement() {
+  const { user, userRole } = useAuth();
+  const [batches, setBatches] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [gradeFilter, setGradeFilter] = useState('All');
   const [page, setPage] = useState(0);
   const [auditBatch, setAuditBatch] = useState(null);
 
-  const filtered = BATCHES.filter(
-    (b) => {
-      const matchesSearch = b.id.toLowerCase().includes(search.toLowerCase()) ||
-                            b.variety.toLowerCase().includes(search.toLowerCase()) ||
-                            b.grade.toLowerCase().includes(search.toLowerCase());
-      const matchesGrade = gradeFilter === 'All' || b.grade === gradeFilter;
-      return matchesSearch && matchesGrade;
-    }
-  );
+  useEffect(() => {
+    let cancelled = false;
 
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+    async function load() {
+      if (!user) {
+        setBatches([]);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      try {
+        let query = supabase.from('batches').select('*').order('created_at', { ascending: false });
+        if (userRole !== 'admin') query = query.eq('user_id', user.id);
+        const { data, error } = await query;
+        if (error) throw error;
+        if (!cancelled) setBatches((data || []).map(mapBatch));
+      } catch (err) {
+        console.warn('BatchManagement load failed:', err.message);
+        if (!cancelled) setBatches([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    load();
+    return () => { cancelled = true; };
+  }, [user, userRole]);
+
+  const filtered = useMemo(() => batches.filter((b) => {
+    const q = search.toLowerCase();
+    const matchesSearch =
+      b.label.toLowerCase().includes(q) ||
+      b.variety.toLowerCase().includes(q) ||
+      b.grade.toLowerCase().includes(q);
+    const matchesGrade = gradeFilter === 'All' || b.grade === gradeFilter;
+    return matchesSearch && matchesGrade;
+  }), [batches, search, gradeFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageData = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   return (
     <div className="space-y-6">
-
-      {/* Toolbar */}
       <div className="dashboard-fade-in dashboard-stagger-1 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex w-full max-w-md flex-col gap-3 sm:flex-row">
           <div className="relative flex-1">
@@ -239,10 +246,11 @@ export default function BatchManagement() {
             <option value="Standard">Standard</option>
           </select>
         </div>
-        <p className="text-xs font-semibold text-[#A1887F]">{filtered.length} batches</p>
+        <p className="text-xs font-semibold text-[#A1887F]">
+          {loading ? 'Loading…' : `${filtered.length} batches`}
+        </p>
       </div>
 
-      {/* Table */}
       <div className="dashboard-fade-in dashboard-stagger-2 overflow-hidden rounded-xl border border-[#A1887F]/10 bg-white shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
@@ -253,7 +261,7 @@ export default function BatchManagement() {
                 <th className="px-5 py-3.5 font-semibold">Variety</th>
                 <th className="px-5 py-3.5 font-semibold">Total</th>
                 <th className="px-5 py-3.5 font-semibold">Grade</th>
-                <th className="px-5 py-3.5 font-semibold">Confidence</th>
+                <th className="px-5 py-3.5 font-semibold">Export %</th>
                 <th className="px-5 py-3.5 font-semibold">PNS Compliant</th>
                 <th className="px-5 py-3.5 font-semibold text-right">Actions</th>
               </tr>
@@ -261,7 +269,7 @@ export default function BatchManagement() {
             <tbody className="divide-y divide-[#A1887F]/10">
               {pageData.map((b) => (
                 <tr key={b.id} className="group transition-colors hover:bg-[#FFFBF7]">
-                  <td className="whitespace-nowrap px-5 py-3.5 font-semibold text-[#3E2723]">{b.id}</td>
+                  <td className="whitespace-nowrap px-5 py-3.5 font-semibold text-[#3E2723]">{b.label}</td>
                   <td className="px-5 py-3.5 text-[#8D6E63]">{b.date}</td>
                   <td className="px-5 py-3.5 text-[#8D6E63]">{b.variety}</td>
                   <td className="px-5 py-3.5 font-medium text-[#3E2723]">{b.totalBeans}</td>
@@ -311,10 +319,17 @@ export default function BatchManagement() {
                   </td>
                 </tr>
               ))}
-              {pageData.length === 0 && (
+              {!loading && pageData.length === 0 && (
                 <tr>
                   <td colSpan={8} className="px-5 py-16 text-center text-sm text-[#BCAAA4]">
-                    No batches match your search.
+                    No batches found.
+                  </td>
+                </tr>
+              )}
+              {loading && (
+                <tr>
+                  <td colSpan={8} className="px-5 py-16 text-center text-sm text-[#BCAAA4]">
+                    Loading batches…
                   </td>
                 </tr>
               )}
@@ -322,8 +337,7 @@ export default function BatchManagement() {
           </table>
         </div>
 
-        {/* Pagination */}
-        {totalPages > 1 && (
+        {filtered.length > PAGE_SIZE && (
           <div className="flex items-center justify-between border-t border-[#A1887F]/10 px-5 py-3">
             <p className="text-xs text-[#A1887F]">
               Page {page + 1} of {totalPages}
@@ -348,7 +362,6 @@ export default function BatchManagement() {
         )}
       </div>
 
-      {/* Audit Gallery Modal */}
       {auditBatch && <AuditGallery batch={auditBatch} onClose={() => setAuditBatch(null)} />}
     </div>
   );
