@@ -13,25 +13,8 @@ export default function AdminMLOpsWorkbench() {
     async function load() {
       setLoading(true);
       try {
-        const { data, error } = await supabase
-          .from('classifications')
-          .select('*')
-          .eq('is_flagged', true)
-          .order('classified_at', { ascending: false })
-          .limit(100);
-
-        if (error) throw error;
-
-        const mapped = (data || []).map((row) => ({
-          id: row.id,
-          url: row.image_url || null,
-          pred: row.variety || row.class || '—',
-          groundTruth: row.farmer_correction || 'Pending correction',
-          confidence: Math.round(row.variety_confidence ?? row.confidence ?? 0),
-          modelVersion: row.model_version || 'unspecified',
-        }));
-
-        if (!cancelled) setItems(mapped);
+        // Flagging retired in schema v2 — workbench stays empty until a new review pipeline exists
+        if (!cancelled) setItems([]);
       } catch (err) {
         console.warn('AdminMLOpsWorkbench load failed:', err.message);
         if (!cancelled) setItems([]);
@@ -57,14 +40,6 @@ export default function AdminMLOpsWorkbench() {
   };
 
   const handleResolve = async (id) => {
-    try {
-      await supabase
-        .from('classifications')
-        .update({ is_flagged: false })
-        .eq('id', id);
-    } catch (err) {
-      console.warn('Resolve failed:', err.message);
-    }
     setItems((prev) => prev.filter((item) => item.id !== id));
     setSelected((prev) => prev.filter((selectedId) => selectedId !== id));
   };

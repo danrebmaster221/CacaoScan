@@ -1,18 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  Switch,
-  TextInput,
-  TouchableOpacity,
-} from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Colors, Typography, Spacing, Radius, Shadows } from '@/constants/theme';
-import { Ionicons } from '@expo/vector-icons';
 import Slider from '@react-native-community/slider';
+import { Ionicons } from '@expo/vector-icons';
+import { Colors, Typography, Spacing, Palette } from '@/constants/theme';
+import {
+  StickyHeader,
+  Card,
+  RedesignToggle,
+} from '@/components/redesign/ui';
 
 const STORAGE_KEY = '@cacaoscan_threshold_prefs';
 
@@ -35,25 +32,23 @@ export default function SmartThresholdsScreen() {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    loadPrefs();
+    (async () => {
+      try {
+        const stored = await AsyncStorage.getItem(STORAGE_KEY);
+        if (stored) setPrefs(JSON.parse(stored));
+      } catch {
+        // defaults
+      }
+      setLoaded(true);
+    })();
   }, []);
-
-  const loadPrefs = async () => {
-    try {
-      const stored = await AsyncStorage.getItem(STORAGE_KEY);
-      if (stored) setPrefs(JSON.parse(stored));
-    } catch {
-      // Use defaults
-    }
-    setLoaded(true);
-  };
 
   const savePrefs = async (updated: ThresholdPrefs) => {
     setPrefs(updated);
     try {
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
     } catch {
-      // Silently fail
+      // ignore
     }
   };
 
@@ -62,106 +57,89 @@ export default function SmartThresholdsScreen() {
   return (
     <ScrollView style={{ flex: 1, backgroundColor: theme.background }}>
       <Stack.Screen options={{ headerShown: false }} />
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color={theme.text} />
-            <Text style={[styles.backText, { color: theme.text }]}>Smart Thresholds</Text>
-          </TouchableOpacity>
-        </View>
+      <StickyHeader
+        title="Smart Thresholds"
+        subtitle="Configure automated alert rules. The system will monitor these thresholds and notify you when limits are breached."
+        onBack={() => router.back()}
+      />
 
-        <Text style={[styles.description, { color: theme.textSecondary }]}>
-          Configure automated alert rules. The system will monitor these thresholds and notify you when limits are breached.
-        </Text>
-
-        {/* Master Push Alerts */}
-        <View style={[styles.card, { backgroundColor: theme.surface }, Shadows.sm]}>
-          <View style={styles.toggleRow}>
+      <View style={styles.body}>
+        <Card>
+          <View style={styles.row}>
             <Ionicons name="notifications-outline" size={22} color={theme.primary} />
-            <View style={{ flex: 1, marginLeft: Spacing.sm }}>
-              <Text style={[styles.toggleLabel, { color: theme.text }]}>Push Notifications</Text>
-              <Text style={[styles.toggleDesc, { color: theme.textSecondary }]}>Master toggle for Firebase Cloud Messaging (FCM)</Text>
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <Text style={styles.rowTitle}>Push Notifications</Text>
+              <Text style={styles.rowSub}>Master toggle for Firebase Cloud Messaging (FCM)</Text>
             </View>
-            <Switch
+            <RedesignToggle
               value={prefs.pushAlertsEnabled}
               onValueChange={(val) => savePrefs({ ...prefs, pushAlertsEnabled: val })}
-              trackColor={{ false: theme.border, true: theme.primary }}
-              thumbColor="#FFF8F0"
             />
           </View>
-        </View>
+        </Card>
 
-        {/* Reject Rate Limit */}
-        <View style={[styles.card, { backgroundColor: theme.surface }, Shadows.sm]}>
-          <View style={styles.cardHeader}>
-            <Ionicons name="warning-outline" size={22} color={theme.danger} />
-            <Text style={[styles.cardTitle, { color: theme.text }]}>Reject Rate Limit</Text>
+        <Card style={{ marginTop: Spacing.md }}>
+          <View style={styles.row}>
+            <Ionicons name="warning-outline" size={20} color={theme.danger} />
+            <Text style={[styles.rowTitle, { marginLeft: 8 }]}>Reject Rate Limit</Text>
           </View>
-          <Text style={[styles.cardDesc, { color: theme.textSecondary }]}>
+          <Text style={[styles.rowSub, { marginTop: 8 }]}>
             If a batch exceeds this rejection percentage, the system sends a critical alert to your device.
           </Text>
-
           <View style={styles.sliderRow}>
             <Slider
-              style={styles.slider}
+              style={{ flex: 1 }}
               minimumValue={5}
               maximumValue={50}
               step={1}
               value={prefs.rejectRateLimit}
-              onSlidingComplete={(val) => savePrefs({ ...prefs, rejectRateLimit: val })}
+              onValueChange={(val) => savePrefs({ ...prefs, rejectRateLimit: val })}
               minimumTrackTintColor={theme.danger}
-              maximumTrackTintColor={theme.border}
+              maximumTrackTintColor="#f2d0cc"
               thumbTintColor={theme.danger}
             />
-            <View style={[styles.valueBox, { backgroundColor: theme.dangerBg }]}>
-              <Text style={[styles.valueText, { color: theme.danger }]}>{prefs.rejectRateLimit}%</Text>
+            <View style={styles.rejectBadge}>
+              <Text style={styles.rejectPct}>{prefs.rejectRateLimit}%</Text>
             </View>
           </View>
-
           <View style={styles.sliderLabels}>
-            <Text style={[styles.sliderLabel, { color: theme.textSecondary }]}>5%</Text>
-            <Text style={[styles.sliderLabel, { color: theme.textSecondary }]}>Threshold</Text>
-            <Text style={[styles.sliderLabel, { color: theme.textSecondary }]}>50%</Text>
+            <Text style={styles.rowSub}>5%</Text>
+            <Text style={styles.rowSub}>Threshold</Text>
+            <Text style={styles.rowSub}>50%</Text>
           </View>
-        </View>
+        </Card>
 
-        {/* Connection Timeout */}
-        <View style={[styles.card, { backgroundColor: theme.surface }, Shadows.sm]}>
-          <View style={styles.cardHeader}>
-            <Ionicons name="timer-outline" size={22} color={theme.warning} />
-            <Text style={[styles.cardTitle, { color: theme.text }]}>Connection Timeout</Text>
+        <Card style={{ marginTop: Spacing.md }}>
+          <View style={styles.row}>
+            <Ionicons name="time-outline" size={20} color={theme.warning} />
+            <Text style={[styles.rowTitle, { marginLeft: 8 }]}>Connection Timeout</Text>
           </View>
-          <Text style={[styles.cardDesc, { color: theme.textSecondary }]}>
+          <Text style={[styles.rowSub, { marginTop: 8 }]}>
             If the ESP32 doesn&apos;t ping the server within this duration, alert the user that the scanner may be offline.
           </Text>
-
           <View style={styles.timeoutRow}>
             <TextInput
-              style={[styles.timeoutInput, { backgroundColor: theme.background, color: theme.text, borderColor: theme.border }]}
               value={String(prefs.connectionTimeout)}
               onChangeText={(t) => {
-                const num = parseInt(t) || 0;
-                savePrefs({ ...prefs, connectionTimeout: Math.min(300, Math.max(5, num)) });
+                const n = parseInt(t, 10);
+                if (!isNaN(n)) savePrefs({ ...prefs, connectionTimeout: n });
               }}
               keyboardType="number-pad"
-              maxLength={3}
+              style={styles.timeoutInput}
             />
-            <Text style={[styles.timeoutUnit, { color: theme.textSecondary }]}>seconds</Text>
+            <Text style={styles.seconds}>seconds</Text>
           </View>
-
-          <Text style={[styles.timeoutHint, { color: theme.textSecondary }]}>
+          <Text style={styles.recommend}>
             Recommended: 30s for stable Wi-Fi, 60s for warehouse environments
           </Text>
-        </View>
+        </Card>
 
-        {/* Info Card */}
-        <View style={[styles.card, { backgroundColor: theme.infoBg }]}>
-          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm }}>
-            <Ionicons name="bulb-outline" size={20} color={theme.info} />
-            <Text style={[styles.infoText, { color: theme.info }]}>
-              These thresholds run autonomously. The system monitors business rules without manual intervention — proving &quot;Smart&quot; system logic for your defense.
-            </Text>
-          </View>
+        <View style={styles.tip}>
+          <Ionicons name="bulb-outline" size={20} color="#3a7bc2" />
+          <Text style={styles.tipText}>
+            These thresholds run autonomously. The system monitors business rules without manual intervention — proving
+            &quot;Smart&quot; system logic for your defense.
+          </Text>
         </View>
       </View>
     </ScrollView>
@@ -169,27 +147,41 @@ export default function SmartThresholdsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.lg },
-  header: { paddingTop: 64, paddingBottom: Spacing.md },
-  backButton: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: Spacing.sm },
-  backText: { fontSize: Typography.fontSize.lg, fontFamily: Typography.fontFamily.medium },
-  description: { fontSize: Typography.fontSize.sm, fontFamily: Typography.fontFamily.medium, marginBottom: Spacing.lg, lineHeight: 20 },
-  card: { borderRadius: Radius.lg, padding: Spacing.lg, marginBottom: Spacing.lg },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginBottom: Spacing.sm },
-  cardTitle: { fontSize: Typography.fontSize.md, fontFamily: Typography.fontFamily.semiBold },
-  cardDesc: { fontSize: Typography.fontSize.sm, fontFamily: Typography.fontFamily.regular, lineHeight: 20, marginBottom: Spacing.lg },
-  toggleRow: { flexDirection: 'row', alignItems: 'center' },
-  toggleLabel: { fontSize: Typography.fontSize.base, fontFamily: Typography.fontFamily.medium },
-  toggleDesc: { fontSize: Typography.fontSize.xs, fontFamily: Typography.fontFamily.regular, marginTop: 2 },
-  sliderRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
-  slider: { flex: 1, height: 40 },
-  valueBox: { paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs, borderRadius: Radius.md, minWidth: 56, alignItems: 'center' },
-  valueText: { fontSize: Typography.fontSize.md, fontFamily: Typography.fontFamily.bold },
-  sliderLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: -4 },
-  sliderLabel: { fontSize: 10, fontFamily: Typography.fontFamily.medium },
-  timeoutRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, marginBottom: Spacing.sm },
-  timeoutInput: { width: 80, height: 50, borderWidth: 1, borderRadius: Radius.md, paddingHorizontal: Spacing.md, fontSize: Typography.fontSize.lg, fontFamily: Typography.fontFamily.bold, textAlign: 'center' },
-  timeoutUnit: { fontSize: Typography.fontSize.base, fontFamily: Typography.fontFamily.medium },
-  timeoutHint: { fontSize: Typography.fontSize.xs, fontFamily: Typography.fontFamily.regular, fontStyle: 'italic' },
-  infoText: { flex: 1, fontSize: Typography.fontSize.sm, fontFamily: Typography.fontFamily.medium, lineHeight: 20 },
+  body: { paddingHorizontal: Spacing.md, paddingBottom: Spacing['3xl'] },
+  row: { flexDirection: 'row', alignItems: 'center' },
+  rowTitle: { fontSize: 16, fontFamily: Typography.fontFamily.bold, color: Colors.light.text },
+  rowSub: { fontSize: 13, color: Colors.light.textSecondary, lineHeight: 18 },
+  sliderRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 16 },
+  rejectBadge: {
+    backgroundColor: Colors.light.dangerBg,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+  },
+  rejectPct: { fontSize: 20, fontFamily: Typography.fontFamily.bold, color: Colors.light.danger },
+  sliderLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
+  timeoutRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 16 },
+  timeoutInput: {
+    width: 96,
+    borderWidth: 1,
+    borderColor: Palette.borderWarm,
+    backgroundColor: Palette.creamField,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 22,
+    fontFamily: Typography.fontFamily.bold,
+    color: Colors.light.text,
+  },
+  seconds: { fontSize: 16, fontFamily: Typography.fontFamily.semiBold, color: '#7a6555' },
+  recommend: { marginTop: 12, fontSize: 12, fontStyle: 'italic', color: Colors.light.textSecondary },
+  tip: {
+    marginTop: Spacing.md,
+    flexDirection: 'row',
+    gap: 10,
+    backgroundColor: '#e5f0fb',
+    borderRadius: 16,
+    padding: 16,
+  },
+  tipText: { flex: 1, fontSize: 14, lineHeight: 20, color: '#3a7bc2' },
 });

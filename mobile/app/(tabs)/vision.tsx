@@ -3,116 +3,55 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
   Image,
   Switch,
+  TouchableOpacity,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, { FadeInDown, useSharedValue, useAnimatedStyle, withRepeat, withSequence, withTiming, Easing } from 'react-native-reanimated';
-import { Colors, Typography, Spacing, Radius, Shadows } from '@/constants/theme';
+import { Colors, Typography, Spacing, Radius, Shadows, Palette, ClassColors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useESP32Connection, ClassResult } from '@/hooks/use-esp32-connection';
+import { promptConnectScanner } from '@/context/ESP32Context';
 import { useBatchController } from '@/hooks/use-batch-controller';
-
-function ConfidenceBar({ value, color }: { value: number; color: string }) {
-  return (
-    <View style={styles.confidenceBarBg}>
-      <View
-        style={[
-          styles.confidenceBarFill,
-          { width: `${Math.round(value * 100)}%`, backgroundColor: color },
-        ]}
-      />
-    </View>
-  );
-}
+import { isExportClass, labelForClass } from '@/utils/classification';
 
 function BlinkingLiveIndicator() {
   const opacity = useSharedValue(1);
   React.useEffect(() => {
     opacity.value = withRepeat(
       withSequence(
-        withTiming(0, { duration: 800, easing: Easing.linear }),
-        withTiming(1, { duration: 800, easing: Easing.linear })
+        withTiming(0.2, { duration: 700, easing: Easing.linear }),
+        withTiming(1, { duration: 700, easing: Easing.linear })
       ),
       -1,
       true
     );
   }, []);
   const animatedStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
-
   return (
-    <View style={styles.liveIndicatorContainer}>
+    <View style={styles.liveBadge}>
       <Animated.View style={[styles.liveDot, animatedStyle]} />
-      <Text style={styles.liveText}>LIVE</Text>
+      <Text style={styles.liveBadgeText}>LIVE</Text>
     </View>
   );
 }
 
-function RecentClassificationItem({
-  result,
-  theme,
-}: {
-  result: ClassResult & { timestamp?: string; imageUrl?: string };
-  theme: typeof Colors.light;
-}) {
-  const isExport = result.quality === 'export_grade';
-  const isRejected = result.quality === 'rejected';
-  const isDrying = result.quality === 'needs_drying';
-
-  const qualityColor = isExport
-    ? theme.success
-    : isRejected
-    ? theme.danger
-    : theme.warning;
-
-  const qualityLabel = isExport
-    ? 'Export Grade'
-    : isRejected
-    ? 'Rejected'
-    : 'Needs Drying';
-
-  const borderColor = isRejected ? theme.danger : isDrying ? theme.warning : theme.border;
-  const borderWidth = (isRejected || isDrying) ? 1.5 : StyleSheet.hairlineWidth;
-
+function RecentItem({ result, theme }: { result: ClassResult; theme: typeof Colors.light }) {
+  const color = ClassColors[result.operationalClass] || theme.primary;
   return (
-    <View style={[
-      styles.recentItem,
-      {
-        backgroundColor: theme.surface,
-        borderColor,
-        borderWidth
-      }
-    ]}>
-      <View style={styles.recentImagePlaceholder}>
-        {result.imageUrl ? (
-          <Image
-            source={{ uri: result.imageUrl }}
-            style={{ width: '100%', height: '100%' }}
-          />
-        ) : (
-          <Text style={{ fontSize: 18 }}>🫘</Text>
-        )}
-      </View>
-      <View style={styles.recentInfo}>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Text style={[styles.recentVariety, { color: theme.text }]}>
-            {(result.variety || '—').charAt(0).toUpperCase() + (result.variety || '—').slice(1)}
-          </Text>
-          <Text style={[styles.recentTimestamp, { color: theme.textSecondary }]}>
-             • {result.timestamp || 'Just now'}
-          </Text>
-        </View>
-        <Text style={[styles.recentQuality, { color: qualityColor }]}>{qualityLabel}</Text>
-      </View>
-      <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
-        <Text style={[styles.recentConfidence, { color: theme.textSecondary, fontSize: 10 }]}>
-          Variety: {Math.round((result.varietyConfidence || 0) * 100)}%
-        </Text>
-        <Text style={[styles.recentConfidence, { color: qualityColor, fontSize: 10 }]}>
-          Quality: {Math.round((result.qualityConfidence || 0) * 100)}%
+    <View style={[styles.recentRow, { borderBottomColor: '#f2ece5' }]}>
+      <View style={[styles.recentSwatch, { backgroundColor: color }]} />
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.recentTitle, { color: theme.text }]}>{labelForClass(result.operationalClass)}</Text>
+        <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
+          Gate {result.gateActuated} · {result.derivedGrade}
         </Text>
       </View>
+      <Text style={{ color: theme.primary, fontFamily: Typography.fontFamily.bold }}>
+        {Math.round((result.confidence || 0) * 100)}%
+      </Text>
     </View>
   );
 }
@@ -120,131 +59,205 @@ function RecentClassificationItem({
 export default function VisionScreen() {
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
-
   const { activeBatch } = useBatchController();
   const {
     isConnected,
+    isConnecting,
+    serverHost,
+    connect,
+    enableDemoMode,
     currentClassification,
-    recentClassifications
+    recentClassifications,
   } = useESP32Connection(activeBatch?.id);
-
   const [showBoxes, setShowBoxes] = React.useState(true);
 
-  const qualityLabel = currentClassification?.quality === 'export_grade'
-    ? 'Export Grade'
-    : currentClassification?.quality === 'needs_drying'
-    ? 'Needs Drying'
-    : currentClassification?.quality === 'rejected'
-    ? 'Rejected'
-    : '—';
+  const live = isConnected && activeBatch?.status === 'active';
+  const cls = currentClassification?.operationalClass;
+  const classColor = cls ? ClassColors[cls] : theme.textSecondary;
 
-  const qualityColor = currentClassification?.quality === 'export_grade'
-    ? theme.success
-    : currentClassification?.quality === 'needs_drying'
-    ? theme.warning
-    : currentClassification?.quality === 'rejected'
-    ? theme.danger
-    : theme.textSecondary;
+  const tally = [
+    activeBatch?.criollo_count || 0,
+    activeBatch?.forastero_count || 0,
+    activeBatch?.trinitario_count || 0,
+    activeBatch?.needs_drying_count || 0,
+    activeBatch?.rejected_count || 0,
+  ];
+  const labels = ['Criollo', 'Forastero', 'Trinitario', 'Needs Drying', 'Rejected'];
+  const colors = [
+    ClassColors.Criollo,
+    ClassColors.Forastero,
+    ClassColors.Trinitario,
+    ClassColors.Needs_Drying,
+    ClassColors.Rejected,
+  ];
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollPadding}>
+    <SafeAreaView
+      edges={['top']}
+      style={[styles.container, { backgroundColor: theme.background }]}
+    >
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
         <View style={styles.header}>
-          <Text style={[styles.title, { color: theme.text }]}>AI Vision</Text>
-          <View style={[styles.connectionBadge, { backgroundColor: isConnected ? theme.successBg : theme.dangerBg }]}>
-            <View style={[styles.connectionDot, { backgroundColor: isConnected ? theme.success : theme.danger }]} />
-            <Text style={[styles.connectionText, { color: isConnected ? theme.success : theme.danger }]}>
-              {isConnected ? 'Online' : 'Offline'}
+          <View>
+            <Text style={[styles.title, { color: theme.text }]}>AI Vision</Text>
+            <Text style={{ color: theme.textSecondary, marginTop: 4 }}>Single-pass YOLOv8n · edge inference</Text>
+          </View>
+          <View
+            style={[
+              styles.pill,
+              {
+                backgroundColor: !isConnected ? theme.dangerBg : live ? theme.dangerBg : theme.warningBg,
+              },
+            ]}
+          >
+            <View
+              style={[
+                styles.pillDot,
+                { backgroundColor: !isConnected ? theme.danger : live ? theme.danger : theme.warning },
+              ]}
+            />
+            <Text
+              style={{
+                color: !isConnected ? theme.danger : live ? theme.danger : theme.warning,
+                fontFamily: Typography.fontFamily.semiBold,
+                fontSize: 13,
+              }}
+            >
+              {!isConnected ? 'Offline' : live ? 'Live' : 'Standby'}
             </Text>
           </View>
         </View>
 
-        <View style={{ marginBottom: Spacing.md }}>
-          <View style={[styles.cameraContainer, { backgroundColor: colorScheme === 'dark' ? '#1A1210' : '#2C1F1A' }]}>
-            {isConnected ? (
-              <View style={styles.cameraFeed}>
-                <Text style={styles.feedText}>Waiting for camera frames…</Text>
-                <BlinkingLiveIndicator />
-                {showBoxes && currentClassification && (
-                  <View style={[styles.boundingBoxBase, { borderColor: qualityColor }]}>
-                    <View style={[styles.overlayBadge, { backgroundColor: qualityColor }]}>
-                      <Text style={styles.overlayBadgeText}>
-                        {(currentClassification.variety || '').charAt(0).toUpperCase()
-                          + (currentClassification.variety || '').slice(1)}{' '}
-                        {Math.round((currentClassification.varietyConfidence || 0) * 100)}%
-                      </Text>
-                    </View>
+        <View style={styles.feed}>
+          {live ? (
+            <View style={styles.feedLive}>
+              <Text style={styles.feedHint}>Waiting for camera frames…</Text>
+              <BlinkingLiveIndicator />
+              {showBoxes && currentClassification && (
+                <View style={[styles.bbox, { borderColor: classColor }]}>
+                  <View style={[styles.bboxBadge, { backgroundColor: classColor }]}>
+                    <Text style={styles.bboxBadgeText}>
+                      {labelForClass(currentClassification.operationalClass)}{' '}
+                      {Math.round((currentClassification.confidence || 0) * 100)}%
+                    </Text>
                   </View>
-                )}
-              </View>
-            ) : (
-              <View style={styles.cameraOffline}>
-                <Text style={styles.cameraEmoji}>📷</Text>
-                <Text style={styles.cameraOfflineTitle}>Vision monitoring unavailable</Text>
-                <Text style={styles.cameraOfflineSubtitle}>
-                  Connect to the machine to view the live feed. Sorting continues independently of this screen.
+                </View>
+              )}
+              <TouchableOpacity style={styles.boxToggle} onPress={() => setShowBoxes((b) => !b)}>
+                <View style={[styles.pillDot, { backgroundColor: showBoxes ? theme.success : Palette.disabled }]} />
+                <Text style={{ color: '#fff', fontSize: 12, fontFamily: Typography.fontFamily.semiBold }}>
+                  Bounding Boxes {showBoxes ? 'On' : 'Off'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.feedEmpty}>
+              <Text style={{ fontSize: 40 }}>📷</Text>
+              <Text style={styles.feedEmptyTitle}>
+                {!isConnected ? 'Camera link down' : 'Standby · model loaded'}
+              </Text>
+              <Text style={styles.feedEmptySub}>
+                {!isConnected
+                  ? `AI Server ${serverHost} unreachable. Connect to view the live feed.`
+                  : 'YOLOv8n is loaded and ready. Start a session to begin live inference.'}
+              </Text>
+              {!isConnected && (
+                <TouchableOpacity
+                  style={styles.connectMachineBtn}
+                  onPress={() => promptConnectScanner(connect, enableDemoMode, serverHost)}
+                  disabled={isConnecting}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.connectMachineText}>
+                    {isConnecting ? 'Connecting…' : 'Connect to Machine'}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+        </View>
+
+        {live && currentClassification ? (
+          <View style={styles.detectRow}>
+            <View style={[styles.detectCard, Shadows.sm, { borderColor: theme.border }]}>
+              <Text style={{ color: theme.textSecondary, fontSize: 13, fontFamily: Typography.fontFamily.semiBold }}>
+                Detected Class
+              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                <View style={[styles.pillDot, { backgroundColor: classColor }]} />
+                <Text style={{ color: theme.text, fontSize: 20, fontFamily: Typography.fontFamily.bold }}>
+                  {labelForClass(currentClassification.operationalClass)}
                 </Text>
               </View>
-            )}
+              <View style={[styles.confTrack, { backgroundColor: Palette.iconBg }]}>
+                <View
+                  style={[
+                    styles.confFill,
+                    {
+                      width: `${Math.round((currentClassification.confidence || 0) * 100)}%`,
+                      backgroundColor: classColor,
+                    },
+                  ]}
+                />
+              </View>
+              <Text style={{ marginTop: 6, color: theme.primary, fontFamily: Typography.fontFamily.semiBold, fontSize: 12 }}>
+                {Math.round((currentClassification.confidence || 0) * 100)}%
+              </Text>
+            </View>
+            <View style={[styles.detectCard, Shadows.sm, { borderColor: theme.border }]}>
+              <Text style={{ color: theme.textSecondary, fontSize: 13, fontFamily: Typography.fontFamily.semiBold }}>
+                Target Gate
+              </Text>
+              <Text style={{ color: theme.text, fontSize: 20, fontFamily: Typography.fontFamily.bold, marginTop: 8 }}>
+                Gate {currentClassification.gateActuated}
+              </Text>
+              <View style={[styles.gradePill, { backgroundColor: isExportClass(currentClassification.operationalClass) ? theme.successBg : theme.warningBg }]}>
+                <Text
+                  style={{
+                    color: isExportClass(currentClassification.operationalClass) ? theme.success : theme.warning,
+                    fontFamily: Typography.fontFamily.bold,
+                    fontSize: 13,
+                  }}
+                >
+                  {currentClassification.derivedGrade}
+                </Text>
+              </View>
+            </View>
           </View>
-          <View style={styles.toggleRow}>
-            <Text style={{ color: theme.text, fontFamily: Typography.fontFamily.medium }}>Show AI Bounding Boxes</Text>
-            <Switch value={showBoxes} onValueChange={setShowBoxes} trackColor={{ true: theme.primary, false: theme.border }} />
+        ) : (
+          <View style={[styles.emptyDetect, Shadows.sm, { borderColor: theme.border }]}>
+            <Text style={{ color: theme.textSecondary, textAlign: 'center', lineHeight: 22 }}>
+              No active detection. Start a sorting session to see live class and gate results.
+            </Text>
           </View>
-        </View>
+        )}
 
-        <View style={styles.modelRow}>
-          <Animated.View
-            entering={FadeInDown.delay(100)}
-            style={[styles.modelCard, { backgroundColor: theme.surface }, Shadows.sm]}
-          >
-            <Text style={[styles.modelLabel, { color: theme.textSecondary }]}>
-              🔬 Model A — Variety
-            </Text>
-            <Text style={[styles.modelValue, { color: theme.text }]}>
-              {currentClassification
-                ? (currentClassification.variety || '—').charAt(0).toUpperCase()
-                  + (currentClassification.variety || '—').slice(1)
-                : '—'}
-            </Text>
-            <ConfidenceBar value={currentClassification?.varietyConfidence || 0} color={theme.primary} />
-            <Text style={[styles.modelConf, { color: theme.textSecondary }]}>
-              {currentClassification
-                ? `${Math.round((currentClassification.varietyConfidence || 0) * 100)}% confidence`
-                : 'Waiting for classification'}
-            </Text>
-          </Animated.View>
-
-          <Animated.View
-            entering={FadeInDown.delay(200)}
-            style={[styles.modelCard, { backgroundColor: theme.surface }, Shadows.sm]}
-          >
-            <Text style={[styles.modelLabel, { color: theme.textSecondary }]}>
-              ⭐ Model B — Quality
-            </Text>
-            <Text style={[styles.modelValue, { color: qualityColor }]}>
-              {qualityLabel}
-            </Text>
-            <ConfidenceBar
-              value={currentClassification?.qualityConfidence || 0}
-              color={qualityColor}
-            />
-            <Text style={[styles.modelConf, { color: theme.textSecondary }]}>
-              {currentClassification
-                ? `${Math.round((currentClassification.qualityConfidence || 0) * 100)}% confidence`
-                : 'Waiting for classification'}
-            </Text>
-          </Animated.View>
+        <Text style={[styles.sectionTitle, { color: theme.text }]}>Session Tally</Text>
+        <View style={styles.tallyGrid}>
+          {labels.map((label, i) => (
+            <View key={label} style={[styles.tallyCell, Shadows.sm, { borderColor: theme.border }]}>
+              <View style={[styles.pillDot, { backgroundColor: colors[i], marginBottom: 6 }]} />
+              <Text style={{ fontSize: 18, fontFamily: Typography.fontFamily.bold, color: theme.text }}>
+                {live || activeBatch ? tally[i] : 0}
+              </Text>
+              <Text style={{ fontSize: 10, color: theme.textSecondary, textAlign: 'center', marginTop: 4 }}>{label}</Text>
+            </View>
+          ))}
         </View>
 
         <Text style={[styles.sectionTitle, { color: theme.text }]}>Recent Classifications</Text>
         {recentClassifications.length > 0 ? (
-          recentClassifications.map((item) => (
-            <RecentClassificationItem key={item.id} result={item} theme={theme} />
-          ))
+          <Animated.View
+            entering={FadeInDown}
+            style={[styles.recentCard, Shadows.sm, { borderColor: theme.border, backgroundColor: theme.surface }]}
+          >
+            {recentClassifications.map((item) => (
+              <RecentItem key={item.id} result={item} theme={theme} />
+            ))}
+          </Animated.View>
         ) : (
-          <View style={[styles.emptyRecent, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <Text style={[styles.emptyRecentText, { color: theme.textSecondary }]}>
+          <View style={[styles.emptyDetect, Shadows.sm, { borderColor: theme.border }]}>
+            <Text style={{ color: theme.textSecondary, textAlign: 'center' }}>
               No classifications yet. Results appear here when the machine detects and sorts beans.
             </Text>
           </View>
@@ -256,129 +269,99 @@ export default function VisionScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  scrollPadding: { paddingHorizontal: Spacing.md, paddingBottom: Spacing['2xl'] },
-
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingTop: Spacing.xl,
-    paddingBottom: Spacing.md,
+  scroll: {
+    paddingHorizontal: Spacing.md,
+    paddingBottom: 110,
+    paddingTop: Spacing.sm,
   },
-  title: { fontSize: Typography.fontSize.xl, fontFamily: Typography.fontFamily.bold },
-  connectionBadge: {
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  title: { fontSize: 26, fontFamily: Typography.fontFamily.bold },
+  pill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, marginTop: 6 },
+  pillDot: { width: 8, height: 8, borderRadius: 4 },
+  feed: {
+    marginTop: Spacing.md,
+    height: 260,
+    borderRadius: Radius.lg,
+    overflow: 'hidden',
+    backgroundColor: '#241812',
+  },
+  feedLive: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  feedHint: { color: '#FFF8F0', fontFamily: Typography.fontFamily.medium },
+  feedEmpty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: Spacing.lg },
+  feedEmptyTitle: { color: '#fff', fontSize: 18, fontFamily: Typography.fontFamily.bold, marginTop: 12 },
+  feedEmptySub: { color: '#bda99b', textAlign: 'center', marginTop: 8, lineHeight: 20, fontSize: 14 },
+  connectMachineBtn: {
+    marginTop: 16,
+    backgroundColor: '#fff',
+    borderRadius: 999,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+  },
+  connectMachineText: {
+    color: Palette.chocolateDeep,
+    fontFamily: Typography.fontFamily.bold,
+    fontSize: 14,
+  },
+  liveBadge: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing.xs,
-    borderRadius: Radius.full,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
   },
-  connectionDot: { width: 8, height: 8, borderRadius: 4 },
-  connectionText: { fontSize: Typography.fontSize.xs, fontFamily: Typography.fontFamily.semiBold },
-
-  cameraContainer: {
-    borderRadius: Radius.lg,
-    overflow: 'hidden',
-    height: 280,
-    marginBottom: Spacing.md,
-    position: 'relative',
-  },
-  cameraFeed: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  feedText: { color: '#FFF8F0', fontSize: Typography.fontSize.md, fontFamily: Typography.fontFamily.medium },
-  cameraOffline: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: Spacing.lg,
-  },
-  cameraEmoji: { fontSize: 48, marginBottom: Spacing.sm },
-  cameraOfflineTitle: {
-    color: '#FFF8F0',
-    fontSize: Typography.fontSize.md,
-    fontFamily: Typography.fontFamily.semiBold,
-    marginBottom: Spacing.xs,
-  },
-  cameraOfflineSubtitle: {
-    color: 'rgba(255,248,240,0.6)',
-    fontSize: Typography.fontSize.sm,
-    fontFamily: Typography.fontFamily.regular,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  overlayBadge: {
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing.xs,
-    borderRadius: Radius.sm,
-  },
-  overlayBadgeText: { color: '#FFF', fontSize: Typography.fontSize.sm, fontFamily: Typography.fontFamily.semiBold },
-
-  modelRow: { flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.lg },
-  modelCard: { flex: 1, borderRadius: Radius.md, padding: Spacing.md },
-  modelLabel: { fontSize: Typography.fontSize.xs, fontFamily: Typography.fontFamily.semiBold, marginBottom: Spacing.sm },
-  modelValue: { fontSize: Typography.fontSize.lg, fontFamily: Typography.fontFamily.bold, marginBottom: Spacing.sm },
-  modelConf: { fontSize: Typography.fontSize.xs, fontFamily: Typography.fontFamily.regular, marginTop: Spacing.xs },
-
-  confidenceBarBg: {
-    height: 6,
-    backgroundColor: 'rgba(0,0,0,0.1)',
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  confidenceBarFill: { height: 6, borderRadius: 3 },
-
-  sectionTitle: { fontSize: Typography.fontSize.md, fontFamily: Typography.fontFamily.semiBold, marginBottom: Spacing.sm },
-
-  recentItem: {
+  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#ff4d4d' },
+  liveBadgeText: { color: '#fff', fontSize: 10, fontFamily: Typography.fontFamily.bold, letterSpacing: 1 },
+  bbox: { position: 'absolute', top: '28%', left: '28%', width: '44%', height: '48%', borderWidth: 2, borderRadius: 4 },
+  bboxBadge: { position: 'absolute', top: -22, left: 0, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 },
+  bboxBadgeText: { color: '#fff', fontSize: 11, fontFamily: Typography.fontFamily.bold },
+  boxToggle: {
+    position: 'absolute',
+    bottom: 12,
+    left: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    padding: Spacing.md,
-    borderRadius: Radius.md,
-    marginBottom: Spacing.sm,
-    borderWidth: StyleSheet.hairlineWidth,
+    gap: 6,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
   },
-  recentInfo: { flex: 1, marginLeft: Spacing.sm },
-  recentVariety: { fontSize: Typography.fontSize.base, fontFamily: Typography.fontFamily.medium },
-  recentQuality: { fontSize: Typography.fontSize.sm, fontFamily: Typography.fontFamily.regular, marginTop: 2 },
-  recentConfidence: { fontSize: Typography.fontSize.sm, fontFamily: Typography.fontFamily.semiBold },
-  recentImagePlaceholder: {
-    width: 44,
-    height: 44,
-    borderRadius: 6,
-    marginRight: Spacing.sm,
-    backgroundColor: 'rgba(0,0,0,0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  recentTimestamp: { fontSize: Typography.fontSize.xs },
-
-  emptyRecent: {
-    borderRadius: Radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
+  detectRow: { flexDirection: 'row', gap: 10, marginTop: Spacing.md },
+  detectCard: { flex: 1, borderRadius: Radius.lg, borderWidth: 1, backgroundColor: '#fff', padding: Spacing.md },
+  confTrack: { height: 8, borderRadius: 4, overflow: 'hidden', marginTop: 12 },
+  confFill: { height: '100%', borderRadius: 4 },
+  gradePill: { alignSelf: 'flex-start', marginTop: 10, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
+  emptyDetect: {
+    marginTop: Spacing.md,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    backgroundColor: '#fff',
     padding: Spacing.lg,
+  },
+  sectionTitle: { marginTop: Spacing.xl, fontSize: 20, fontFamily: Typography.fontFamily.bold, marginBottom: Spacing.sm },
+  tallyGrid: { flexDirection: 'row', gap: 6 },
+  tallyCell: {
+    flex: 1,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    backgroundColor: '#fff',
+    paddingVertical: 12,
     alignItems: 'center',
   },
-  emptyRecentText: {
-    fontSize: Typography.fontSize.sm,
-    fontFamily: Typography.fontFamily.regular,
-    textAlign: 'center',
-    lineHeight: 20,
+  recentCard: { borderRadius: Radius.lg, borderWidth: 1, overflow: 'hidden' },
+  recentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-
-  toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.xs, marginTop: Spacing.sm },
-
-  liveIndicatorContainer: { position: 'absolute', top: Spacing.md, right: Spacing.md, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
-  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#F44336', marginRight: 6 },
-  liveText: { color: '#FFF', fontSize: 10, fontFamily: Typography.fontFamily.bold, letterSpacing: 1 },
-
-  boundingBoxBase: {
-    position: 'absolute',
-    top: '28%',
-    left: '28%',
-    width: '44%',
-    height: '48%',
-    borderWidth: 2,
-    borderRadius: 4,
-  },
+  recentSwatch: { width: 32, height: 32, borderRadius: 8 },
+  recentTitle: { fontSize: 15, fontFamily: Typography.fontFamily.bold },
 });

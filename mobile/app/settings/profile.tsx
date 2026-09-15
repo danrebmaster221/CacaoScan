@@ -2,26 +2,32 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
-  TextInput,
-  TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
   ScrollView,
-  Switch,
+  TouchableOpacity,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/services/supabase';
-import { Colors, Typography, Spacing, Radius, Shadows } from '@/constants/theme';
+import { Colors, Typography, Spacing, Palette } from '@/constants/theme';
 import { sanitizeInput } from '@/utils/security';
+import {
+  StickyHeader,
+  Card,
+  FieldLabel,
+  FieldInput,
+  BrownButton,
+} from '@/components/redesign/ui';
 
 export default function EditProfileScreen() {
-  const { userProfile, user } = useAuth();
+  const { userProfile, user, signOut } = useAuth();
   const router = useRouter();
   const theme = Colors.light;
-
   const meta = user?.user_metadata;
+
   const [firstName, setFirstName] = useState(meta?.first_name || userProfile?.first_name || '');
   const [lastName, setLastName] = useState(meta?.last_name || userProfile?.last_name || '');
   const [newPassword, setNewPassword] = useState('');
@@ -39,7 +45,6 @@ export default function EditProfileScreen() {
       setError('First name and last name are required.');
       return;
     }
-
     if (newPassword) {
       if (newPassword.length < 12) {
         setError('Password must be at least 12 characters.');
@@ -54,9 +59,7 @@ export default function EditProfileScreen() {
     setLoading(true);
     setError(null);
     setSuccess(null);
-
     try {
-      // Save to auth user_metadata (primary — always works)
       const updatePayload: any = {
         data: {
           first_name: cleanFirst,
@@ -68,33 +71,19 @@ export default function EditProfileScreen() {
       if (newPassword) updatePayload.password = newPassword;
 
       const { error: updateError } = await supabase.auth.updateUser(updatePayload);
-      if (updateError) {
-        if (updateError.message.includes('different from the old password') || updateError.message.includes('same password')) {
-          // Re-attempt without password
-          const { error: retryError } = await supabase.auth.updateUser({
-            data: updatePayload.data,
-          });
-          if (retryError) throw retryError;
-          setSuccess('Profile updated! (Password unchanged — same as current.)');
-        } else {
-          throw updateError;
-        }
-      } else {
-        setSuccess('Profile updated successfully!');
-      }
+      if (updateError) throw updateError;
 
-      // Fallback: also try profiles table
       try {
-        await supabase.from('profiles').upsert({
-          id: user?.id,
-          first_name: cleanFirst,
-          last_name: cleanLast,
-        }, { onConflict: 'id' });
+        await supabase.from('profiles').upsert(
+          { id: user?.id, first_name: cleanFirst, last_name: cleanLast },
+          { onConflict: 'id' }
+        );
       } catch {
-        // Silently ignore
+        // ignore
       }
 
-      setTimeout(() => router.back(), 1500);
+      setSuccess('Profile updated successfully!');
+      setTimeout(() => router.back(), 1200);
     } catch (err: any) {
       setError(err.message || 'Failed to update profile.');
     } finally {
@@ -102,232 +91,108 @@ export default function EditProfileScreen() {
     }
   };
 
-  const handleLogoutAllDevices = async () => {
-    setLoading(true);
-    try {
-      await supabase.auth.signOut({ scope: 'global' });
-      router.replace('/(auth)/login' as any);
-    } catch {
-      setError('Failed to sign out of all devices.');
-    } finally {
-      setLoading(false);
-    }
+  const handleLogoutAll = () => {
+    Alert.alert(
+      'Logout of All Devices?',
+      'This will revoke sessions. You will need to sign in again.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: async () => {
+            await signOut();
+            router.replace('/(auth)/login' as any);
+          },
+        },
+      ]
+    );
   };
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: theme.background }}>
       <Stack.Screen options={{ headerShown: false }} />
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color={theme.text} />
-            <Text style={[styles.backText, { color: theme.text }]}>Edit Profile</Text>
-          </TouchableOpacity>
-        </View>
+      <StickyHeader
+        title="Edit Profile"
+        subtitle="Manage your account credentials, update your password, and control your active sessions."
+        onBack={() => router.back()}
+      />
 
-        <Text style={[styles.description, { color: theme.textSecondary }]}>
-          Manage your account credentials, update your password, and control your active sessions.
-        </Text>
+      <View style={styles.body}>
+        <Card>
+          <Text style={styles.cardTitle}>Personal Information</Text>
+          <FieldLabel>First Name</FieldLabel>
+          <FieldInput value={firstName} onChangeText={setFirstName} />
+          <FieldLabel>Last Name</FieldLabel>
+          <FieldInput value={lastName} onChangeText={setLastName} />
+        </Card>
 
-        {error && (
-          <View style={[styles.alert, { backgroundColor: theme.dangerBg }]}>  
-            <Text style={[styles.alertText, { color: theme.danger }]}>{error}</Text>
-          </View>
-        )}
-        {success && (
-          <View style={[styles.alert, { backgroundColor: theme.successBg }]}>
-            <Text style={[styles.alertText, { color: theme.success }]}>{success}</Text>
-          </View>
-        )}
-
-        {/* Name Section */}
-        <View style={[styles.section, { backgroundColor: theme.surface }, Shadows.sm]}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Personal Information</Text>
-          <View style={styles.inputGroup}>
-            <Text style={[styles.label, { color: theme.textSecondary }]}>First Name</Text>
-            <TextInput
-              style={[styles.input, { backgroundColor: theme.background, color: theme.text, borderColor: theme.border }]}
-              value={firstName}
-              onChangeText={setFirstName}
-              placeholder="First Name"
+        <Card style={{ marginTop: Spacing.md }}>
+          <Text style={styles.cardTitle}>Change Password</Text>
+          <Text style={styles.hint}>Leave blank if you don&apos;t want to change your password.</Text>
+          <FieldLabel>New Password</FieldLabel>
+          <View style={styles.pwWrap}>
+            <FieldInput
+              value={newPassword}
+              onChangeText={setNewPassword}
+              secureTextEntry={!showNewPw}
+              placeholder="Enter a new password"
+              style={{ paddingRight: 48 }}
             />
+            <TouchableOpacity style={styles.eye} onPress={() => setShowNewPw((s) => !s)}>
+              <Ionicons name={showNewPw ? 'eye-off-outline' : 'eye-outline'} size={20} color={Palette.disabled} />
+            </TouchableOpacity>
           </View>
-          <View style={styles.inputGroup}>
-            <Text style={[styles.label, { color: theme.textSecondary }]}>Last Name</Text>
-            <TextInput
-              style={[styles.input, { backgroundColor: theme.background, color: theme.text, borderColor: theme.border }]}
-              value={lastName}
-              onChangeText={setLastName}
-              placeholder="Last Name"
+          <FieldLabel>Confirm Password</FieldLabel>
+          <View style={styles.pwWrap}>
+            <FieldInput
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              secureTextEntry={!showConfirmPw}
+              placeholder="Re-enter new password"
+              style={{ paddingRight: 48 }}
             />
+            <TouchableOpacity style={styles.eye} onPress={() => setShowConfirmPw((s) => !s)}>
+              <Ionicons name={showConfirmPw ? 'eye-off-outline' : 'eye-outline'} size={20} color={Palette.disabled} />
+            </TouchableOpacity>
           </View>
-        </View>
+        </Card>
 
-        {/* Password Section */}
-        <View style={[styles.section, { backgroundColor: theme.surface }, Shadows.sm]}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Change Password</Text>
-          <Text style={[styles.sectionHint, { color: theme.textSecondary }]}>
-            Leave blank if you don&apos;t want to change your password.
-          </Text>
-          <View style={styles.inputGroup}>
-            <Text style={[styles.label, { color: theme.textSecondary }]}>New Password</Text>
-            <View style={styles.passwordWrap}>
-              <TextInput
-                style={[styles.passwordInput, { backgroundColor: theme.background, color: theme.text, borderColor: theme.border }]}
-                value={newPassword}
-                onChangeText={setNewPassword}
-                secureTextEntry={!showNewPw}
-                placeholder="Min 12 characters"
-              />
-              <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowNewPw(!showNewPw)}>
-                <Ionicons name={showNewPw ? 'eye-off-outline' : 'eye-outline'} size={20} color={theme.textSecondary} />
-              </TouchableOpacity>
-            </View>
-          </View>
-          <View style={styles.inputGroup}>
-            <Text style={[styles.label, { color: theme.textSecondary }]}>Confirm Password</Text>
-            <View style={styles.passwordWrap}>
-              <TextInput
-                style={[styles.passwordInput, { backgroundColor: theme.background, color: theme.text, borderColor: theme.border }]}
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
-                secureTextEntry={!showConfirmPw}
-                placeholder="Re-enter new password"
-              />
-              <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowConfirmPw(!showConfirmPw)}>
-                <Ionicons name={showConfirmPw ? 'eye-off-outline' : 'eye-outline'} size={20} color={theme.textSecondary} />
-              </TouchableOpacity>
-            </View>
-            {confirmPassword.length > 0 && (
-              <Text style={{ color: newPassword === confirmPassword ? theme.success : theme.danger, fontSize: Typography.fontSize.xs, marginTop: 4, fontFamily: Typography.fontFamily.medium }}>
-                {newPassword === confirmPassword ? '\u2713 Passwords match' : '\u2717 Passwords do not match'}
-              </Text>
-            )}
-          </View>
-        </View>
-
-        {/* Security Section */}
-        <View style={[styles.section, { backgroundColor: theme.surface }, Shadows.sm]}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Security</Text>
-          <TouchableOpacity style={[styles.logoutRow, { borderBottomColor: theme.border }]} onPress={handleLogoutAllDevices}>
+        <Card style={{ marginTop: Spacing.md }}>
+          <Text style={styles.cardTitle}>Security</Text>
+          <TouchableOpacity style={styles.logoutAll} onPress={handleLogoutAll}>
             <Ionicons name="log-out-outline" size={22} color={theme.danger} />
-            <View style={{ flex: 1, marginLeft: Spacing.sm }}>
-              <Text style={[styles.logoutLabel, { color: theme.danger }]}>Logout of All Devices</Text>
-              <Text style={[styles.logoutDesc, { color: theme.textSecondary }]}>Revoke all active sessions for this account</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.logoutTitle}>Logout of All Devices</Text>
+              <Text style={styles.hint}>Revoke all active sessions for this account</Text>
             </View>
-            <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
+            <Ionicons name="chevron-forward" size={18} color={Palette.disabled} />
           </TouchableOpacity>
-        </View>
+        </Card>
 
-        <TouchableOpacity
-          style={[styles.button, { backgroundColor: theme.primary }, loading && { opacity: 0.7 }]}
-          onPress={handleSaveProfile}
-          disabled={loading}
-        >
-          {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Save Changes</Text>}
-        </TouchableOpacity>
+        {error && <Text style={styles.error}>{error}</Text>}
+        {success && <Text style={styles.ok}>{success}</Text>}
+
+        <View style={{ marginTop: Spacing.lg }}>
+          {loading ? (
+            <ActivityIndicator color={theme.primary} />
+          ) : (
+            <BrownButton title="Save Changes" onPress={handleSaveProfile} />
+          )}
+        </View>
       </View>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    paddingHorizontal: Spacing.lg,
-    paddingBottom: Spacing.lg,
-  },
-  header: { paddingTop: 64, paddingBottom: Spacing.md },
-  backButton: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: Spacing.sm },
-  backText: { fontSize: Typography.fontSize.lg, fontFamily: Typography.fontFamily.medium },
-  description: {
-    fontSize: Typography.fontSize.sm,
-    fontFamily: Typography.fontFamily.medium,
-    marginBottom: Spacing.lg,
-    lineHeight: 20,
-  },
-  alert: {
-    padding: Spacing.sm,
-    borderRadius: Radius.sm,
-    marginBottom: Spacing.md,
-  },
-  alertText: {
-    fontFamily: Typography.fontFamily.medium,
-    fontSize: Typography.fontSize.sm,
-    textAlign: 'center',
-  },
-  section: {
-    borderRadius: Radius.lg,
-    padding: Spacing.lg,
-    marginBottom: Spacing.lg,
-  },
-  sectionTitle: {
-    fontSize: Typography.fontSize.md,
-    fontFamily: Typography.fontFamily.semiBold,
-    marginBottom: Spacing.sm,
-  },
-  sectionHint: {
-    fontSize: Typography.fontSize.xs,
-    fontFamily: Typography.fontFamily.regular,
-    marginBottom: Spacing.md,
-  },
-  inputGroup: {
-    marginBottom: Spacing.md,
-  },
-  label: {
-    fontSize: Typography.fontSize.sm,
-    fontFamily: Typography.fontFamily.medium,
-    marginBottom: Spacing.xs,
-  },
-  input: {
-    height: 50,
-    borderWidth: 1,
-    borderRadius: Radius.md,
-    paddingHorizontal: Spacing.md,
-    fontSize: Typography.fontSize.base,
-    fontFamily: Typography.fontFamily.regular,
-  },
-  passwordWrap: {
-    position: 'relative',
-  },
-  passwordInput: {
-    height: 50,
-    borderWidth: 1,
-    borderRadius: Radius.md,
-    paddingHorizontal: Spacing.md,
-    paddingRight: 48,
-    fontSize: Typography.fontSize.base,
-    fontFamily: Typography.fontFamily.regular,
-  },
-  eyeBtn: {
-    position: 'absolute',
-    right: 12,
-    top: 13,
-    padding: 4,
-  },
-  logoutRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: Spacing.md,
-  },
-  logoutLabel: {
-    fontSize: Typography.fontSize.base,
-    fontFamily: Typography.fontFamily.medium,
-  },
-  logoutDesc: {
-    fontSize: Typography.fontSize.xs,
-    fontFamily: Typography.fontFamily.regular,
-    marginTop: 2,
-  },
-  button: {
-    height: 52,
-    borderRadius: Radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: Spacing.xl,
-  },
-  buttonText: {
-    color: '#FFF8F0',
-    fontSize: Typography.fontSize.md,
-    fontFamily: Typography.fontFamily.semiBold,
-  },
+  body: { paddingHorizontal: Spacing.md, paddingBottom: Spacing['3xl'] },
+  cardTitle: { fontSize: 18, fontFamily: Typography.fontFamily.bold, color: Colors.light.text },
+  hint: { fontSize: 13, color: Colors.light.textSecondary, marginTop: 4 },
+  pwWrap: { position: 'relative' },
+  eye: { position: 'absolute', right: 14, top: 14 },
+  logoutAll: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 12 },
+  logoutTitle: { fontSize: 16, fontFamily: Typography.fontFamily.bold, color: Colors.light.danger },
+  error: { marginTop: 12, color: Colors.light.danger },
+  ok: { marginTop: 12, color: Colors.light.success },
 });

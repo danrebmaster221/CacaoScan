@@ -3,13 +3,13 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   TouchableOpacity,
   ScrollView,
   Modal,
   Pressable,
   Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import type { ComponentProps } from 'react';
 import { useRouter } from 'expo-router';
@@ -17,6 +17,8 @@ import { Colors, Typography, Spacing, Radius, Shadows, Palette } from '@/constan
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
+import { useESP32Connection } from '@/hooks/use-esp32-connection';
+import { promptConnectScanner } from '@/context/ESP32Context';
 
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
@@ -38,8 +40,8 @@ function SettingsItem({ icon, label, subtitle, onPress, theme }: SettingsItemPro
       onPress={onPress}
       activeOpacity={0.6}
     >
-      <View style={[styles.settingsIconWrap, { backgroundColor: theme.background }]}>
-        <Ionicons name={icon} size={18} color={theme.primary} />
+      <View style={[styles.settingsIconWrap, { backgroundColor: Palette.iconBg }]}>
+        <Ionicons name={icon} size={18} color={Palette.chocolate} />
       </View>
       <View style={styles.settingsContent}>
         <Text style={[styles.settingsLabel, { color: theme.text }]}>{label}</Text>
@@ -167,11 +169,13 @@ export default function SettingsScreen() {
   const theme = Colors[colorScheme];
   const { user, userRole, signOut } = useAuth();
   const { themeMode, setThemeMode } = useTheme();
+  const { isConnected, isConnecting, serverHost, connect, enableDemoMode } = useESP32Connection();
   const router = useRouter();
   const [showSignOutModal, setShowSignOutModal] = useState(false);
   const [showThemeModal, setShowThemeModal] = useState(false);
 
   const displayName = user?.user_metadata?.full_name || user?.user_metadata?.first_name || (userRole === 'admin' ? 'Admin' : 'Farmer');
+  const online = isConnected;
 
   async function handleSignOutConfirm() {
     setShowSignOutModal(false);
@@ -184,8 +188,14 @@ export default function SettingsScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      <ScrollView showsVerticalScrollIndicator={false}>
+    <SafeAreaView
+      edges={['top']}
+      style={[styles.container, { backgroundColor: theme.background }]}
+    >
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+      >
         <View style={styles.header}>
           <Text style={[styles.title, { color: theme.text }]}>Settings</Text>
         </View>
@@ -217,6 +227,25 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        <View style={[styles.connStrip, Shadows.sm]}>
+          <View style={[styles.connDot, { backgroundColor: online ? theme.success : theme.danger }]} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.connLabel}>Paired Machine</Text>
+            <Text style={{ color: online ? theme.success : theme.danger, fontFamily: Typography.fontFamily.bold, fontSize: 15 }}>
+              {online ? 'Connected · Idle' : 'Offline'}
+            </Text>
+          </View>
+          {!online && (
+            <TouchableOpacity
+              style={styles.connBtn}
+              onPress={() => promptConnectScanner(connect, enableDemoMode, serverHost)}
+              disabled={isConnecting}
+            >
+              <Text style={styles.connBtnText}>{isConnecting ? '…' : 'Connect'}</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
         <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>ACCOUNT & ONBOARDING</Text>
         <View style={[styles.settingsGroup, { backgroundColor: theme.surface }, Shadows.sm]}>
           <SettingsItem
@@ -240,21 +269,14 @@ export default function SettingsScreen() {
           <SettingsItem
             icon="hardware-chip-outline"
             label="Hardware Monitor"
-            subtitle="ESP32 diagnostics, network telemetry"
+            subtitle={online ? 'Online · edge telemetry' : 'Offline · unreachable'}
             onPress={() => router.push('/settings/hardware' as any)}
-            theme={theme}
-          />
-          <SettingsItem
-            icon="scan-outline"
-            label="Vision Calibration"
-            subtitle="ROI alignment, camera settings"
-            onPress={() => router.push('/settings/vision' as any)}
             theme={theme}
           />
           <SettingsItem
             icon="construct-outline"
             label="Manual Override"
-            subtitle="E-Stop, servo, conveyor control"
+            subtitle={online ? 'E-Stop, gate & conveyor control' : 'Unavailable — machine offline'}
             onPress={() => router.push('/manual-override' as any)}
             theme={theme}
           />
@@ -317,12 +339,15 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    paddingTop: Spacing.xl,
+    paddingTop: Spacing.sm,
     paddingBottom: Spacing.md,
     paddingHorizontal: Spacing.md,
   },
+  scrollContent: {
+    paddingBottom: 110,
+  },
   title: {
-    fontSize: Typography.fontSize.xl,
+    fontSize: 26,
     fontFamily: Typography.fontFamily.bold,
   },
   profileCard: {
@@ -330,9 +355,39 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginHorizontal: Spacing.md,
     borderRadius: Radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#eef0f3',
     padding: Spacing.md,
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.md,
   },
+  connStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginHorizontal: Spacing.md,
+    marginBottom: Spacing.md,
+    borderRadius: Radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#eef0f3',
+    backgroundColor: '#fff',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 14,
+  },
+  connDot: { width: 10, height: 10, borderRadius: 5 },
+  connLabel: {
+    fontSize: 12,
+    fontFamily: Typography.fontFamily.semiBold,
+    color: '#a1917f',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  connBtn: {
+    backgroundColor: Palette.chocolate,
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  connBtnText: { color: '#fff', fontFamily: Typography.fontFamily.bold, fontSize: 13 },
   avatar: {
     width: 56,
     height: 56,
@@ -341,7 +396,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   avatarText: {
-    color: Palette.cream,
+    color: '#FFFFFF',
     fontSize: Typography.fontSize.xl,
     fontFamily: Typography.fontFamily.bold,
   },
@@ -350,8 +405,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   profileName: {
-    fontSize: Typography.fontSize.md,
-    fontFamily: Typography.fontFamily.semiBold,
+    fontSize: 19,
+    fontFamily: Typography.fontFamily.bold,
   },
   profileEmail: {
     fontSize: Typography.fontSize.sm,
@@ -367,19 +422,21 @@ const styles = StyleSheet.create({
   },
   roleText: {
     fontSize: Typography.fontSize.xs,
-    fontFamily: Typography.fontFamily.medium,
+    fontFamily: Typography.fontFamily.semiBold,
   },
   sectionTitle: {
     fontSize: Typography.fontSize.xs,
-    fontFamily: Typography.fontFamily.semiBold,
+    fontFamily: Typography.fontFamily.bold,
     marginHorizontal: Spacing.md,
     marginBottom: Spacing.sm,
-    marginTop: Spacing.sm,
-    letterSpacing: 1,
+    marginTop: Spacing.md,
+    letterSpacing: 0.8,
   },
   settingsGroup: {
     marginHorizontal: Spacing.md,
     borderRadius: Radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#eef0f3',
     marginBottom: Spacing.md,
     overflow: 'hidden',
   },
@@ -420,14 +477,14 @@ const styles = StyleSheet.create({
     backgroundColor: SIGN_OUT_BROWN,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: Palette.darkCacao,
+    shadowColor: '#4b3226',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 8,
     elevation: 4,
   },
   signOutText: {
-    color: Palette.cream,
+    color: '#FFFFFF',
     fontSize: Typography.fontSize.base,
     fontFamily: Typography.fontFamily.semiBold,
     letterSpacing: 0.2,
@@ -495,7 +552,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   modalSignOutText: {
-    color: Palette.cream,
+    color: '#FFFFFF',
     fontSize: Typography.fontSize.base,
     fontFamily: Typography.fontFamily.semiBold,
   },

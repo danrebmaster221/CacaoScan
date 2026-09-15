@@ -1,0 +1,3 @@
+-- DEPRECATED filename (typo: shema).
+-- Use: schema_v2.sql (fresh) or migrate_to_v2.sql (existing DB).
+-- Do not run this file in the Supabase SQL Editor.

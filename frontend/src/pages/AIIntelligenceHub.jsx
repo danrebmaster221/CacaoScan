@@ -34,27 +34,8 @@ export default function AIIntelligenceHub() {
 
       setLoading(true);
       try {
-        let query = supabase
-          .from('classifications')
-          .select('*')
-          .eq('is_flagged', true)
-          .order('classified_at', { ascending: false })
-          .limit(50);
-
-        // Farmers only see classifications from their batches via RLS;
-        // admins may see all if policy allows.
-        const { data, error } = await query;
-        if (error) throw error;
-
-        const mapped = (data || []).map((row) => ({
-          id: row.id,
-          src: row.image_url || null,
-          aiLabel: row.variety || row.class || '—',
-          confidence: Math.round(row.variety_confidence ?? row.confidence ?? 0),
-          corrected: row.farmer_correction || null,
-        }));
-
-        if (!cancelled) setItems(mapped);
+        // Flagging / MLOps HITL retired in schema v2 — show empty review queue
+        if (!cancelled) setItems([]);
       } catch (err) {
         console.warn('AIIntelligenceHub load failed:', err.message);
         if (!cancelled) setItems([]);
@@ -77,17 +58,8 @@ export default function AIIntelligenceHub() {
     [readiness]
   );
 
-  async function handleCorrection(id, label) {
-    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, corrected: label } : item)));
-    if (!label) return;
-    try {
-      await supabase
-        .from('classifications')
-        .update({ farmer_correction: label, is_flagged: true })
-        .eq('id', id);
-    } catch (err) {
-      console.warn('Failed to save correction:', err.message);
-    }
+  async function handleCorrection(_id, _label) {
+    // No-op: farmer_correction / is_flagged removed in schema v2
   }
 
   return (

@@ -3,364 +3,204 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
   TouchableOpacity,
   Alert,
-  Switch,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import type { ComponentProps } from 'react';
-import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
-import Slider from '@react-native-community/slider';
-import { Colors, Typography, Spacing, Radius, Shadows } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
-import { AlertCircleIcon } from '@/components/auth/AuthIcons';
-
-type ServoPosition = 1 | 2 | 3;
-type IoniconName = ComponentProps<typeof Ionicons>['name'];
+import { Colors, Typography, Spacing, Radius, Shadows, Palette, ClassColors } from '@/constants/theme';
+import {
+  StickyHeader,
+  Card,
+  OfflineBanner,
+  RedesignToggle,
+} from '@/components/redesign/ui';
+import { useESP32Connection } from '@/hooks/use-esp32-connection';
 
 const ESP32_DEFAULT_IP = '192.168.4.1';
 
-const SERVO_LABELS: Record<
-  ServoPosition,
-  { label: string; icon: IoniconName; color: string }
-> = {
-  1: { label: 'Route: Export', icon: 'checkmark-circle-outline', color: '#4CAF50' },
-  2: { label: 'Route: Drying', icon: 'alert-circle-outline', color: '#FFA726' },
-  3: { label: 'Route: Reject', icon: 'close-circle-outline', color: '#E53935' },
-};
-
-function SectionHeader({
-  icon,
-  title,
-  theme,
-}: {
-  icon: IoniconName;
-  title: string;
-  theme: typeof Colors.light;
-}) {
-  return (
-    <View style={styles.sectionHeader}>
-      <Ionicons name={icon} size={20} color={theme.primary} />
-      <Text style={[styles.sectionTitle, { color: theme.text }]}>{title}</Text>
-    </View>
-  );
-}
+const GATES = [
+  { n: 1, label: 'Rejected', color: ClassColors.Rejected },
+  { n: 2, label: 'Drying', color: ClassColors.Needs_Drying },
+  { n: 3, label: 'Criollo', color: ClassColors.Criollo },
+  { n: 4, label: 'Forastero', color: ClassColors.Forastero },
+  { n: 5, label: 'Trinitario', color: ClassColors.Trinitario },
+];
 
 export default function ManualOverrideScreen() {
-  const colorScheme = useColorScheme() ?? 'light';
-  const theme = Colors[colorScheme];
+  const theme = Colors.light;
   const router = useRouter();
+  const { isConnected } = useESP32Connection();
 
-  const [currentServoPos, setCurrentServoPos] = useState<ServoPosition | null>(null);
-  const [conveyorSpeed, setConveyorSpeed] = useState(0);
-  const [isConnected] = useState(false);
-  const [manualMode, setManualMode] = useState(false);
-  const [eStopActive, setEStopActive] = useState(false);
+  const [manual, setManual] = useState(false);
+  const [conveyor, setConveyor] = useState(false);
+  const offline = !isConnected;
+  const lockStyle = offline ? { opacity: 0.45 } : undefined;
 
-  const controlsDisabled = !isConnected || !manualMode || eStopActive;
-
-  function handleEmergencyStop() {
-    setEStopActive(true);
-    setConveyorSpeed(0);
-    setCurrentServoPos(null);
-    // Send E-Stop command to ESP32
+  function post(path: string) {
     try {
-      fetch(`http://${ESP32_DEFAULT_IP}/e-stop`, { method: 'POST', signal: AbortSignal.timeout(2000) });
+      fetch(`http://${ESP32_DEFAULT_IP}${path}`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(2000),
+      }).catch(() => {});
     } catch {
-      // Best effort
+      // best effort
     }
-    Alert.alert(
-      '🛑 EMERGENCY STOP ACTIVATED',
-      'Conveyor relay has been killed. All actuators are frozen. Press "Resume Operations" to re-enable controls.',
-    );
   }
 
-  function handleResumeOperations() {
-    Alert.alert(
-      'Resume Operations?',
-      'This will re-enable manual controls. Make sure the sorting area is clear before proceeding.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Resume',
-          style: 'destructive',
-          onPress: () => {
-            setEStopActive(false);
-            try {
-              fetch(`http://${ESP32_DEFAULT_IP}/resume`, { method: 'POST', signal: AbortSignal.timeout(2000) });
-            } catch {
-              // Best effort
-            }
-          },
-        },
-      ],
-    );
+  function handleEStop() {
+    if (offline) return;
+    setConveyor(false);
+    post('/e-stop');
+    Alert.alert('Emergency Stop', 'Conveyor relay killed. All actuators frozen.');
   }
 
-  function handleManualModeToggle(enabled: boolean) {
+  function handleGate(n: number) {
+    if (offline || !manual) {
+      Alert.alert('Locked', offline ? 'Connect to the machine first.' : 'Enable Manual Mode first.');
+      return;
+    }
+    post(`/gate/${n}`);
+    Alert.alert('Gate Test', `Actuating Gate ${n}`);
+  }
+
+  function handleConveyor(on: boolean) {
+    if (offline || !manual) return;
+    setConveyor(on);
+    post(on ? '/conveyor/on' : '/conveyor/off');
+  }
+
+  function handleManualToggle(enabled: boolean) {
     if (enabled) {
       Alert.alert(
         'Enable Manual Mode?',
-        'This will disable the AI sorting system. Only use for maintenance or emergencies.',
+        'This will disable AI sorting. Only use for maintenance or emergencies.',
         [
           { text: 'Cancel', style: 'cancel' },
-          { text: 'Enable', style: 'destructive', onPress: () => setManualMode(true) },
-        ],
+          { text: 'Enable', style: 'destructive', onPress: () => setManual(true) },
+        ]
       );
     } else {
-      setManualMode(false);
-      setCurrentServoPos(null);
-      setConveyorSpeed(0);
+      setManual(false);
+      setConveyor(false);
     }
   }
-
-  function handleServoPress(position: ServoPosition) {
-    if (controlsDisabled) {
-      if (eStopActive) {
-        Alert.alert('E-Stop Active', 'Resume operations before using manual controls.');
-      } else if (!isConnected) {
-        Alert.alert('Not Connected', 'Connect to the ESP32 before using manual controls.');
-      } else {
-        Alert.alert('Manual Mode Required', 'Enable Manual Mode to use these controls.');
-      }
-      return;
-    }
-    setCurrentServoPos(position);
-    // Send to ESP32
-    fetch(`http://${ESP32_DEFAULT_IP}/servo?pos=${position}`, { signal: AbortSignal.timeout(2000) }).catch(() => {});
-  }
-
-  function handleSpeedChange(value: number) {
-    const speed = Math.round(value);
-    setConveyorSpeed(speed);
-    // Debounced send to ESP32 via PWM
-    fetch(`http://${ESP32_DEFAULT_IP}/conveyor?speed=${speed}`, { signal: AbortSignal.timeout(2000) }).catch(() => {});
-  }
-
-  const speedWarning = conveyorSpeed > 75;
-  const speedDanger = conveyorSpeed > 90;
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollPadding}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color={theme.text} />
-            <Text style={[styles.backText, { color: theme.text }]}>Manual Override</Text>
-          </TouchableOpacity>
-        </View>
-
-        <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-          Direct physical control over the sorting machine
-        </Text>
-
-        {/* Disconnected Banner */}
-        {!isConnected && (
-          <Animated.View
-            entering={FadeInDown.delay(50)}
-            style={[styles.disconnectedBanner, { backgroundColor: theme.dangerBg, borderColor: theme.danger }]}
-          >
-            <Ionicons name="cloud-offline-outline" size={20} color={theme.danger} />
-            <Text style={[styles.disconnectedText, { color: theme.danger }]}>
-              Scanner Disconnected — Connect to CacaoScan-AP Wi-Fi
-            </Text>
-          </Animated.View>
+    <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: theme.background }}>
+      <StickyHeader
+        title="Manual Override"
+        subtitle="Direct physical control over the sorting machine"
+        onBack={() => router.back()}
+      />
+      <ScrollView contentContainerStyle={styles.scroll}>
+        {offline && (
+          <View style={{ marginBottom: Spacing.md }}>
+            <OfflineBanner text="Machine offline — connect to actuate hardware" />
+          </View>
         )}
-
-        {/* ═══════════════════════════════════════════════════ */}
-        {/* EMERGENCY STOP — THE BIG RED BUTTON                */}
-        {/* ═══════════════════════════════════════════════════ */}
-        <Animated.View entering={FadeInDown.delay(100)}>
-          {eStopActive ? (
-            <TouchableOpacity
-              style={[styles.resumeButton, { paddingVertical: Spacing.md }]}
-              onPress={handleResumeOperations}
-              activeOpacity={0.85}
-            >
-              <Ionicons name="play-circle-outline" size={28} color="#FFF8F0" />
-              <Text style={[styles.resumeButtonText, { fontSize: Typography.fontSize.md }]}>Resume Operations</Text>
-              <Text style={styles.resumeButtonSub}>Conveyor relay is currently HALTED</Text>
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity
-              style={[styles.eStopButton, { paddingVertical: Spacing.md }]}
-              onPress={handleEmergencyStop}
-              activeOpacity={0.85}
-            >
-              <Ionicons name="hand-left-outline" size={32} color="#FFF8F0" />
-              <Text style={[styles.eStopText, { fontSize: Typography.fontSize.lg }]}>EMERGENCY STOP</Text>
-              <Text style={styles.eStopSubText}>Kill conveyor relay instantly</Text>
-            </TouchableOpacity>
-          )}
-        </Animated.View>
-
-        {/* Manual Mode Toggle */}
-        <Animated.View entering={FadeInDown.delay(150)} style={[styles.manualModeCard, { backgroundColor: theme.surface }, Shadows.sm]}>
-          <View style={styles.manualModeRow}>
-            <Ionicons name="cog-outline" size={22} color={manualMode ? theme.warning : theme.textSecondary} />
-            <View style={{ flex: 1, marginLeft: Spacing.sm }}>
-              <Text style={[styles.manualModeLabel, { color: theme.text }]}>Manual Mode</Text>
-              <Text style={[styles.manualModeDesc, { color: theme.textSecondary }]}>
-                {manualMode ? 'AI sorting is DISABLED — manual controls active' : 'AI sorting is active — turn on for manual control'}
-              </Text>
-            </View>
-            <Switch
-              value={manualMode}
-              onValueChange={handleManualModeToggle}
-              trackColor={{ false: theme.border, true: theme.warning }}
-              thumbColor="#FFF8F0"
-            />
-          </View>
-        </Animated.View>
-
-        {/* Safety Warning */}
-        {manualMode && (
-          <Animated.View
-            entering={FadeInDown.delay(100)}
-            style={[styles.warningBanner, { backgroundColor: theme.warningBg, borderColor: theme.warning }]}
-          >
-            <AlertCircleIcon size={18} color={theme.warning} accent={theme.warning} />
-            <Text style={[styles.warningText, { color: theme.warning }]}>
-              Manual mode overrides the AI sorting. Use only when needed.
-            </Text>
-          </Animated.View>
-        )}
-
-        {/* Servo Flipper Control */}
-        <SectionHeader icon="construct-outline" title="Servo Flipper Control" theme={theme} />
-        <Text style={[styles.sectionSubtitle, { color: theme.textSecondary }]}>
-          Manually route beans to a specific output bin
-        </Text>
-
-        <View style={[styles.servoDiagram, { backgroundColor: theme.surface, opacity: controlsDisabled ? 0.5 : 1 }, Shadows.md]}>
-          <Text style={[styles.diagramTitle, { color: theme.textSecondary }]}>Current Position</Text>
-          <View style={styles.diagramRow}>
-            {([1, 2, 3] as ServoPosition[]).map((pos) => {
-              const config = SERVO_LABELS[pos];
-              const isActive = currentServoPos === pos;
-              return (
-                <TouchableOpacity
-                  key={pos}
-                  style={[
-                    styles.servoButton,
-                    {
-                      backgroundColor: isActive ? config.color : theme.background,
-                      borderColor: config.color,
-                      borderWidth: 2,
-                    },
-                  ]}
-                  onPress={() => handleServoPress(pos)}
-                  activeOpacity={0.7}
-                  disabled={controlsDisabled}
-                >
-                  <Ionicons
-                    name={config.icon}
-                    size={28}
-                    color={isActive ? '#FFF8F0' : config.color}
-                  />
-                  <Text
-                    style={[
-                      styles.servoLabel,
-                      { color: isActive ? '#FFF8F0' : config.color },
-                    ]}
-                  >
-                    {config.label}
-                  </Text>
-                  {isActive && (
-                    <View style={styles.servoActiveRow}>
-                      <View style={styles.servoActiveDot} />
-                      <Text style={styles.servoActive}>Active</Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </View>
-
-        {/* Conveyor Speed Slider */}
-        <SectionHeader icon="speedometer-outline" title="Conveyor Speed" theme={theme} />
-        <Text style={[styles.sectionSubtitle, { color: theme.textSecondary }]}>
-          Adjust PWM speed of the 12V conveyor belt motor
-        </Text>
-
-        <View style={[styles.speedCard, { backgroundColor: theme.surface, opacity: controlsDisabled ? 0.5 : 1 }, Shadows.md]}>
-          <View style={styles.speedDisplay}>
-            <Text
-              style={[
-                styles.speedValue,
-                {
-                  color: speedDanger
-                    ? theme.danger
-                    : speedWarning
-                    ? theme.warning
-                    : theme.text,
-                },
-              ]}
-            >
-              {conveyorSpeed}%
-            </Text>
-            <Text style={[styles.speedUnit, { color: theme.textSecondary }]}>PWM</Text>
-          </View>
-
-          {speedWarning && (
-            <View
-              style={[
-                styles.speedWarning,
-                { backgroundColor: speedDanger ? theme.dangerBg : theme.warningBg },
-              ]}
-            >
-              <Ionicons
-                name={speedDanger ? 'close-circle-outline' : 'alert-circle-outline'}
-                size={16}
-                color={speedDanger ? theme.danger : theme.warning}
-                style={styles.speedWarningIcon}
-              />
-              <Text
-                style={[
-                  styles.speedWarningText,
-                  { color: speedDanger ? theme.danger : theme.warning },
-                ]}
-              >
-                {speedDanger
-                  ? 'Too fast — camera cannot capture accurately'
-                  : 'Approaching speed limit for AI detection'}
-              </Text>
-            </View>
-          )}
-
-          <Slider
-            style={styles.slider}
-            minimumValue={0}
-            maximumValue={100}
-            step={1}
-            value={conveyorSpeed}
-            onSlidingComplete={handleSpeedChange}
-            minimumTrackTintColor={speedDanger ? theme.danger : speedWarning ? theme.warning : theme.success}
-            maximumTrackTintColor={theme.border}
-            thumbTintColor={speedDanger ? theme.danger : speedWarning ? theme.warning : theme.primary}
-            disabled={controlsDisabled}
-          />
-
-          <View style={styles.speedLabels}>
-            <Text style={[styles.speedLabel, { color: theme.textSecondary }]}>0%</Text>
-            <Text style={[styles.speedLabel, { color: theme.warning }]}>75%</Text>
-            <Text style={[styles.speedLabel, { color: theme.danger }]}>90%</Text>
-            <Text style={[styles.speedLabel, { color: theme.textSecondary }]}>100%</Text>
-          </View>
-        </View>
 
         <TouchableOpacity
-          style={[styles.resetButton, { borderColor: theme.border }]}
+          style={[styles.eStop, offline && { backgroundColor: '#e6a3a3' }]}
+          onPress={handleEStop}
+          disabled={offline}
+          activeOpacity={0.9}
+        >
+          <Ionicons name="hand-left-outline" size={36} color="#fff" />
+          <Text style={styles.eStopTitle}>EMERGENCY STOP</Text>
+          <Text style={styles.eStopSub}>
+            {offline ? 'Unavailable while disconnected' : 'Kill conveyor relay instantly'}
+          </Text>
+        </TouchableOpacity>
+
+        <Card style={{ marginTop: Spacing.md, ...lockStyle }}>
+          <View style={styles.rowBetween}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+              <Ionicons name="settings-outline" size={22} color={theme.primary} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rowTitle}>Manual Mode</Text>
+                <Text style={styles.rowSub}>AI sorting is active — turn on for manual control</Text>
+              </View>
+            </View>
+            <RedesignToggle value={manual} onValueChange={handleManualToggle} />
+          </View>
+        </Card>
+
+        <Text style={[styles.h3, { color: theme.text }]}>
+          <Ionicons name="construct-outline" size={18} color={theme.primary} /> Gate Test Control
+        </Text>
+        <Text style={styles.hint}>Manually actuate each physical sorting paddle</Text>
+        <Card style={{ marginTop: 10 }}>
+          <View style={[styles.gateGrid, lockStyle]}>
+            {GATES.map((g) => (
+              <TouchableOpacity
+                key={g.n}
+                disabled={offline}
+                onPress={() => handleGate(g.n)}
+                style={[styles.gateBtn, { borderColor: g.color, backgroundColor: `${g.color}1a` }]}
+              >
+                <Text style={styles.gateN}>Gate {g.n}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: g.color }} />
+                  <Text style={{ color: g.color, fontFamily: Typography.fontFamily.bold, fontSize: 12 }}>
+                    {g.label}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+          {offline && (
+            <Text style={styles.lockHint}>Connect to a machine to actuate hardware</Text>
+          )}
+        </Card>
+
+        <Text style={[styles.h3, { color: theme.text }]}>Conveyor Motor</Text>
+        <Text style={styles.hint}>Opto-isolated relay — switched ON / OFF</Text>
+        <Card style={{ marginTop: 10, ...lockStyle }}>
+          <View style={styles.rowBetween}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <View
+                style={{
+                  width: 12,
+                  height: 12,
+                  borderRadius: 6,
+                  backgroundColor: conveyor ? theme.success : Palette.disabled,
+                }}
+              />
+              <Text
+                style={{
+                  fontSize: 16,
+                  fontFamily: Typography.fontFamily.bold,
+                  color: conveyor ? theme.success : theme.textSecondary,
+                }}
+              >
+                {conveyor ? 'Motor Running' : 'Motor Stopped'}
+              </Text>
+            </View>
+            <RedesignToggle
+              value={conveyor}
+              onValueChange={(v) => {
+                if (!manual || offline) {
+                  Alert.alert('Locked', 'Enable Manual Mode while connected first.');
+                  return;
+                }
+                handleConveyor(v);
+              }}
+            />
+          </View>
+        </Card>
+
+        <TouchableOpacity
+          style={[styles.resetBtn, offline && { opacity: 0.45 }]}
+          disabled={offline}
           onPress={() => {
-            setCurrentServoPos(null);
-            setConveyorSpeed(0);
+            setManual(false);
+            setConveyor(false);
           }}
         >
-          <Text style={[styles.resetText, { color: theme.textSecondary }]}>Reset to Defaults</Text>
+          <Text style={styles.resetText}>Reset to Defaults</Text>
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
@@ -368,200 +208,61 @@ export default function ManualOverrideScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  scrollPadding: { paddingHorizontal: Spacing.md, paddingBottom: Spacing['2xl'] },
-
-  header: { paddingTop: 64, paddingBottom: Spacing.md },
-  backButton: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: Spacing.sm },
-  backText: { fontSize: Typography.fontSize.lg, fontFamily: Typography.fontFamily.medium },
-  subtitle: {
-    fontSize: Typography.fontSize.sm,
-    fontFamily: Typography.fontFamily.regular,
-    marginBottom: 32,
-  },
-
-  disconnectedBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: Spacing.md,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    marginBottom: Spacing.md,
-    gap: Spacing.sm,
-  },
-  disconnectedText: {
-    flex: 1,
-    fontSize: Typography.fontSize.sm,
-    fontFamily: Typography.fontFamily.semiBold,
-    lineHeight: 20,
-  },
-
-  eStopButton: {
-    backgroundColor: '#C62828',
-    paddingVertical: Spacing.xl,
+  scroll: { paddingHorizontal: Spacing.md, paddingBottom: Spacing['3xl'] },
+  eStop: {
+    backgroundColor: '#e02424',
     borderRadius: Radius.lg,
+    paddingVertical: 28,
     alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: Spacing.lg,
-    borderWidth: 3,
-    borderColor: '#E53935',
-    shadowColor: '#C62828',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 8,
+    ...Shadows.md,
   },
-  eStopText: {
-    color: '#FFF8F0',
-    fontSize: Typography.fontSize.xl,
+  eStopTitle: {
+    color: '#fff',
+    fontSize: 22,
     fontFamily: Typography.fontFamily.bold,
-    letterSpacing: 2,
-    marginTop: Spacing.sm,
+    marginTop: 8,
+    letterSpacing: 0.5,
   },
-  eStopSubText: {
-    color: '#FFCDD2',
-    fontSize: Typography.fontSize.sm,
-    fontFamily: Typography.fontFamily.medium,
-    marginTop: 4,
+  eStopSub: { color: 'rgba(255,255,255,0.85)', fontSize: 13, marginTop: 4 },
+  rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  rowTitle: { fontSize: 16, fontFamily: Typography.fontFamily.bold, color: Colors.light.text },
+  rowSub: { fontSize: 13, color: Colors.light.textSecondary, marginTop: 2 },
+  h3: {
+    marginTop: Spacing.lg,
+    fontSize: 18,
+    fontFamily: Typography.fontFamily.bold,
   },
-
-  resumeButton: {
-    backgroundColor: '#2E7D32',
-    paddingVertical: Spacing.xl,
-    borderRadius: Radius.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: Spacing.lg,
+  hint: { marginTop: 4, fontSize: 14, color: Colors.light.textSecondary },
+  gateGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  gateBtn: {
+    width: '30%',
+    flexGrow: 1,
+    minWidth: '28%',
     borderWidth: 2,
-    borderColor: '#4CAF50',
-  },
-  resumeButtonText: {
-    color: '#FFF8F0',
-    fontSize: Typography.fontSize.lg,
-    fontFamily: Typography.fontFamily.bold,
-    marginTop: Spacing.sm,
-  },
-  resumeButtonSub: {
-    color: '#C8E6C9',
-    fontSize: Typography.fontSize.sm,
-    fontFamily: Typography.fontFamily.medium,
-    marginTop: 4,
-  },
-
-  manualModeCard: {
-    borderRadius: Radius.lg,
-    padding: Spacing.md,
-    marginBottom: Spacing.md,
-  },
-  manualModeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  manualModeLabel: {
-    fontSize: Typography.fontSize.base,
-    fontFamily: Typography.fontFamily.medium,
-  },
-  manualModeDesc: {
-    fontSize: Typography.fontSize.xs,
-    fontFamily: Typography.fontFamily.regular,
-    marginTop: 2,
-  },
-
-  warningBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: Spacing.md,
     borderRadius: Radius.md,
-    borderWidth: 1,
-    marginBottom: Spacing.md,
-    gap: Spacing.sm,
-  },
-  warningText: {
-    flex: 1,
-    fontSize: Typography.fontSize.sm,
-    fontFamily: Typography.fontFamily.medium,
-    lineHeight: 20,
-  },
-
-  sectionHeader: {
-    flexDirection: 'row',
+    paddingVertical: 12,
     alignItems: 'center',
-    gap: Spacing.xs,
-    marginBottom: 2,
   },
-  sectionTitle: { fontSize: Typography.fontSize.md, fontFamily: Typography.fontFamily.semiBold },
-  sectionSubtitle: {
-    fontSize: Typography.fontSize.sm,
-    fontFamily: Typography.fontFamily.regular,
-    marginBottom: Spacing.md,
-  },
-
-  servoDiagram: { borderRadius: Radius.lg, padding: Spacing.md, marginBottom: Spacing.lg },
-  diagramTitle: {
-    fontSize: Typography.fontSize.sm,
-    fontFamily: Typography.fontFamily.medium,
-    marginBottom: Spacing.md,
+  gateN: { fontSize: 15, fontFamily: Typography.fontFamily.bold, color: Colors.light.text },
+  lockHint: {
+    marginTop: 14,
     textAlign: 'center',
-  },
-  diagramRow: { flexDirection: 'row', gap: Spacing.sm },
-  servoButton: {
-    flex: 1,
-    borderRadius: Radius.md,
-    padding: Spacing.md,
-    alignItems: 'center',
-    gap: Spacing.xs,
-  },
-  servoLabel: {
-    fontSize: Typography.fontSize.sm,
+    color: Palette.disabled,
     fontFamily: Typography.fontFamily.semiBold,
-    textAlign: 'center',
+    fontSize: 13,
   },
-  servoActiveRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
-  servoActiveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#FFF8F0' },
-  servoActive: {
-    color: '#FFF8F0',
-    fontSize: Typography.fontSize.xs,
-    fontFamily: Typography.fontFamily.medium,
-  },
-
-  speedCard: { borderRadius: Radius.lg, padding: Spacing.md, marginBottom: Spacing.md },
-  speedDisplay: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'center',
-    marginBottom: Spacing.md,
-    gap: Spacing.xs,
-  },
-  speedValue: { fontSize: Typography.fontSize['3xl'], fontFamily: Typography.fontFamily.bold },
-  speedUnit: { fontSize: Typography.fontSize.md, fontFamily: Typography.fontFamily.medium },
-  speedWarning: {
-    flexDirection: 'row',
+  resetBtn: {
+    marginTop: Spacing.lg,
+    borderWidth: 1,
+    borderColor: Palette.borderWarm,
+    backgroundColor: '#fff',
+    borderRadius: Radius.lg,
+    paddingVertical: 16,
     alignItems: 'center',
-    padding: Spacing.sm,
-    borderRadius: Radius.sm,
-    marginBottom: Spacing.md,
   },
-  speedWarningIcon: { marginRight: Spacing.xs },
-  speedWarningText: {
-    flex: 1,
-    fontSize: Typography.fontSize.sm,
-    fontFamily: Typography.fontFamily.medium,
+  resetText: {
+    color: Palette.chocolate,
+    fontSize: 16,
+    fontFamily: Typography.fontFamily.bold,
   },
-  slider: {
-    width: '100%',
-    height: 40,
-    marginBottom: Spacing.xs,
-  },
-  speedLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: -4 },
-  speedLabel: { fontSize: Typography.fontSize.xs, fontFamily: Typography.fontFamily.medium },
-
-  resetButton: {
-    height: 48,
-    borderRadius: Radius.md,
-    borderWidth: 1.5,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: Spacing.sm,
-  },
-  resetText: { fontSize: Typography.fontSize.base, fontFamily: Typography.fontFamily.medium },
 });

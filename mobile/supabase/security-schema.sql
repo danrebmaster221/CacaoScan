@@ -1,6 +1,6 @@
 -- ============================================
 -- ISO 27001 Security Schema
--- Run this in Supabase SQL Editor AFTER schema.sql
+-- Safe to re-run after migrate_to_v2.sql
 -- ============================================
 
 -- ============================================
@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS login_audit_logs (
 
   -- Control #7: Required audit fields
   user_email TEXT NOT NULL,
-  login_status TEXT NOT NULL CHECK (login_status IN ('success', 'failed', 'locked', 'otp_sent', 'otp_verified', 'otp_failed', 'password_reset')),
+  login_status TEXT NOT NULL,
   
   -- Extended metadata
   ip_address TEXT DEFAULT 'mobile-client',
@@ -32,10 +32,21 @@ CREATE TABLE IF NOT EXISTS login_audit_logs (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Ensure password_reset (and other statuses) are allowed on existing DBs
+ALTER TABLE login_audit_logs DROP CONSTRAINT IF EXISTS login_audit_logs_login_status_check;
+ALTER TABLE login_audit_logs
+  ADD CONSTRAINT login_audit_logs_login_status_check
+  CHECK (login_status IN (
+    'success', 'failed', 'locked',
+    'otp_sent', 'otp_verified', 'otp_failed',
+    'password_reset'
+  ));
+
 -- Control #14: Enable RLS — protect audit trails
 ALTER TABLE login_audit_logs ENABLE ROW LEVEL SECURITY;
 
--- Users can only view their own logs (by email match to their profile)
+-- Idempotent policies (DROP IF EXISTS → CREATE)
+DROP POLICY IF EXISTS "Users can view own audit logs" ON login_audit_logs;
 CREATE POLICY "Users can view own audit logs"
   ON login_audit_logs FOR SELECT
   USING (
@@ -44,7 +55,7 @@ CREATE POLICY "Users can view own audit logs"
     )
   );
 
--- Only authenticated users can insert logs (for their own email)
+DROP POLICY IF EXISTS "Authenticated users can insert own logs" ON login_audit_logs;
 CREATE POLICY "Authenticated users can insert own logs"
   ON login_audit_logs FOR INSERT
   WITH CHECK (
@@ -53,7 +64,7 @@ CREATE POLICY "Authenticated users can insert own logs"
     )
   );
 
--- Admins can view all audit logs
+DROP POLICY IF EXISTS "Admins can view all audit logs" ON login_audit_logs;
 CREATE POLICY "Admins can view all audit logs"
   ON login_audit_logs FOR SELECT
   USING (
@@ -67,11 +78,13 @@ CREATE POLICY "Admins can view all audit logs"
 -- NO DELETE or UPDATE policies — audit logs are immutable
 -- This satisfies Control #14: Audit Trail Protection
 
--- Allow unauthenticated inserts for failed login logging
--- (user hasn't authenticated yet when login fails)
-CREATE POLICY "Allow insert for failed login logging"
+-- Allow unauthenticated inserts for pre-auth events
+-- (failed login, lockout, password reset — no JWT yet)
+DROP POLICY IF EXISTS "Allow insert for failed login logging" ON login_audit_logs;
+DROP POLICY IF EXISTS "Allow insert for unauthenticated audit events" ON login_audit_logs;
+CREATE POLICY "Allow insert for unauthenticated audit events"
   ON login_audit_logs FOR INSERT
-  WITH CHECK (login_status IN ('failed', 'locked'));
+  WITH CHECK (login_status IN ('failed', 'locked', 'password_reset'));
 
 -- ============================================
 -- Control #12: Password Reset Token Tracking

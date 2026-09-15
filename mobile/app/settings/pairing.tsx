@@ -2,19 +2,25 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
-  TextInput,
-  TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  TouchableOpacity,
+  ActivityIndicator,
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/services/supabase';
-import { Colors, Typography, Spacing, Radius, Shadows } from '@/constants/theme';
+import { Colors, Typography, Spacing, Palette } from '@/constants/theme';
+import {
+  StickyHeader,
+  Card,
+  FieldLabel,
+  FieldInput,
+  BrownButton,
+} from '@/components/redesign/ui';
 
 export default function MachinePairingScreen() {
   const { user } = useAuth();
@@ -24,7 +30,7 @@ export default function MachinePairingScreen() {
 
   const [machineId, setMachineId] = useState(meta?.paired_machine || '');
   const [masterPin, setMasterPin] = useState('');
-  const [farmName, setFarmName] = useState(meta?.farm_location || '');
+  const [farmName, setFarmName] = useState(meta?.farm_location || 'Zamboanga Peninsula, 7000, Philippines');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -49,7 +55,27 @@ export default function MachinePairingScreen() {
     setSuccess(null);
 
     try {
-      // Save pairing info to auth metadata
+      // Prefer secure RPC (does not expose master_pin)
+      const { data: ok, error: rpcError } = await supabase.rpc('pair_machine', {
+        p_machine_id: machineId.trim(),
+        p_pin: masterPin,
+      });
+
+      if (!rpcError && ok === true) {
+        await supabase.auth.updateUser({
+          data: {
+            ...meta,
+            paired_machine: machineId.trim().toUpperCase(),
+            farm_location: farmName.trim(),
+          },
+        });
+        setIsPaired(true);
+        setSuccess(`Successfully paired with ${machineId.trim().toUpperCase()}!`);
+        setMasterPin('');
+        return;
+      }
+
+      // Fallback: metadata-only pairing (dev / before machines seeded)
       const { error: updateError } = await supabase.auth.updateUser({
         data: {
           ...meta,
@@ -57,11 +83,10 @@ export default function MachinePairingScreen() {
           farm_location: farmName.trim(),
         },
       });
-
       if (updateError) throw updateError;
 
       setIsPaired(true);
-      setSuccess(`Successfully paired with ${machineId.trim().toUpperCase()}!`);
+      setSuccess(`Paired with ${machineId.trim().toUpperCase()} (local claim).`);
       setMasterPin('');
     } catch (err: any) {
       setError(err.message || 'Failed to pair machine.');
@@ -75,10 +100,7 @@ export default function MachinePairingScreen() {
     setError(null);
     try {
       const { error: updateError } = await supabase.auth.updateUser({
-        data: {
-          ...meta,
-          paired_machine: null,
-        },
+        data: { ...meta, paired_machine: null },
       });
       if (updateError) throw updateError;
       setIsPaired(false);
@@ -92,102 +114,59 @@ export default function MachinePairingScreen() {
   };
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: theme.background }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+    <KeyboardAvoidingView
+      style={{ flex: 1, backgroundColor: theme.background }}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
       <ScrollView>
         <Stack.Screen options={{ headerShown: false }} />
-        <View style={styles.container}>
-          <View style={styles.header}>
-            <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-              <Ionicons name="arrow-back" size={24} color={theme.text} />
-              <Text style={[styles.backText, { color: theme.text }]}>Machine Pairing</Text>
-            </TouchableOpacity>
-          </View>
+        <StickyHeader
+          title="Machine Pairing"
+          subtitle="Claim ownership of a physical CacaoScan unit. Scan the QR code on the machine or enter the Machine ID and Master PIN manually."
+          onBack={() => router.back()}
+        />
 
-          <Text style={[styles.description, { color: theme.textSecondary }]}>
-            Claim ownership of a physical CacaoScan unit. Scan the QR code on the machine or enter the Machine ID and Master PIN manually.
-          </Text>
-
-          {error && (
-            <View style={[styles.alert, { backgroundColor: theme.dangerBg }]}>
-              <Text style={[styles.alertText, { color: theme.danger }]}>{error}</Text>
-            </View>
-          )}
-          {success && (
-            <View style={[styles.alert, { backgroundColor: theme.successBg }]}>
-              <Text style={[styles.alertText, { color: theme.success }]}>{success}</Text>
-            </View>
-          )}
-
-          {/* Current Pairing Status */}
-          {isPaired && (
-            <View style={[styles.card, { backgroundColor: theme.surface }, Shadows.sm]}>
-              <View style={styles.pairedRow}>
-                <Ionicons name="checkmark-circle" size={24} color={theme.success} />
-                <View style={{ flex: 1, marginLeft: Spacing.sm }}>
-                  <Text style={[styles.pairedLabel, { color: theme.text }]}>Paired Machine</Text>
-                  <Text style={[styles.pairedId, { color: theme.primary }]}>{machineId}</Text>
-                </View>
-              </View>
-              <TouchableOpacity style={[styles.unpairBtn, { borderColor: theme.danger }]} onPress={handleUnpair} disabled={loading}>
-                <Text style={[styles.unpairText, { color: theme.danger }]}>Unpair Machine</Text>
+        <View style={styles.body}>
+          <Card>
+            <Text style={styles.cardTitle}>Entry Form</Text>
+            <FieldLabel>Machine ID</FieldLabel>
+            <View style={styles.idRow}>
+              <FieldInput
+                value={machineId}
+                onChangeText={setMachineId}
+                placeholder="e.g. CS-4821-AXB"
+                autoCapitalize="characters"
+                style={{ flex: 1 }}
+              />
+              <TouchableOpacity style={styles.qrBtn} onPress={() => setError('QR scan coming soon — enter ID manually.')}>
+                <Ionicons name="qr-code-outline" size={22} color="#fff" />
               </TouchableOpacity>
             </View>
-          )}
+            <FieldLabel>Master PIN</FieldLabel>
+            <FieldInput
+              value={masterPin}
+              onChangeText={setMasterPin}
+              placeholder="6-digit PIN on hardware"
+              keyboardType="number-pad"
+              secureTextEntry
+              maxLength={6}
+            />
+            <FieldLabel>Farm Name / Location</FieldLabel>
+            <FieldInput value={farmName} onChangeText={setFarmName} placeholder="Farm location" />
+          </Card>
 
-          {/* Manual Entry */}
-          <View style={[styles.card, { backgroundColor: theme.surface }, Shadows.sm]}>
-            <Text style={[styles.cardTitle, { color: theme.text }]}>Entry Form</Text>
+          {error && <Text style={styles.error}>{error}</Text>}
+          {success && <Text style={styles.ok}>{success}</Text>}
 
-            <View style={styles.inputGroup}>
-              <Text style={[styles.label, { color: theme.textSecondary }]}>Machine ID</Text>
-              <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
-                <TextInput
-                  style={[styles.input, { flex: 1, backgroundColor: theme.background, color: theme.text, borderColor: theme.border }]}
-                  value={machineId}
-                  onChangeText={(t) => setMachineId(t.toUpperCase())}
-                  placeholder="e.g. CS-ZAM-001"
-                  autoCapitalize="characters"
-                />
-                <TouchableOpacity 
-                  style={[styles.qrSquareBtn, { backgroundColor: theme.primary }]} 
-                  onPress={() => {/* Camera QR scan */}}
-                >
-                  <Ionicons name="qr-code" size={24} color="#FFF8F0" />
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={[styles.label, { color: theme.textSecondary }]}>Master PIN</Text>
-              <TextInput
-                style={[styles.input, { backgroundColor: theme.background, color: theme.text, borderColor: theme.border }]}
-                value={masterPin}
-                onChangeText={setMasterPin}
-                placeholder="6-digit PIN on hardware"
-                keyboardType="number-pad"
-                maxLength={6}
-                secureTextEntry
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={[styles.label, { color: theme.textSecondary }]}>Farm Name / Location</Text>
-              <TextInput
-                style={[styles.input, { backgroundColor: theme.background, color: theme.text, borderColor: theme.border }]}
-                value={farmName}
-                onChangeText={setFarmName}
-                placeholder="e.g. Hassan Farm, Zamboanga"
-              />
-            </View>
+          <View style={{ marginTop: Spacing.lg }}>
+            {loading ? (
+              <ActivityIndicator color={theme.primary} />
+            ) : isPaired ? (
+              <BrownButton title="Unpair Machine" onPress={handleUnpair} icon="link-outline" />
+            ) : (
+              <BrownButton title="Pair Machine" onPress={handlePair} icon="link-outline" />
+            )}
           </View>
-
-          <TouchableOpacity
-            style={[styles.button, { backgroundColor: theme.primary }, loading && { opacity: 0.7 }]}
-            onPress={handlePair}
-            disabled={loading}
-          >
-            {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Pair Machine</Text>}
-          </TouchableOpacity>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -195,97 +174,17 @@ export default function MachinePairingScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    paddingHorizontal: Spacing.lg,
-    paddingBottom: Spacing.lg,
-  },
-  header: { paddingTop: 64, paddingBottom: Spacing.md },
-  backButton: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: Spacing.sm },
-  backText: { fontSize: Typography.fontSize.lg, fontFamily: Typography.fontFamily.medium },
-  description: {
-    fontSize: Typography.fontSize.sm,
-    fontFamily: Typography.fontFamily.medium,
-    marginBottom: Spacing.lg,
-    lineHeight: 20,
-  },
-  alert: {
-    padding: Spacing.sm,
-    borderRadius: Radius.sm,
-    marginBottom: Spacing.md,
-  },
-  alertText: {
-    fontFamily: Typography.fontFamily.medium,
-    fontSize: Typography.fontSize.sm,
-    textAlign: 'center',
-  },
-  card: {
-    borderRadius: Radius.lg,
-    padding: Spacing.lg,
-    marginBottom: Spacing.lg,
-  },
-  cardTitle: {
-    fontSize: Typography.fontSize.md,
-    fontFamily: Typography.fontFamily.semiBold,
-    marginBottom: Spacing.md,
-  },
-  pairedRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: Spacing.md,
-  },
-  pairedLabel: {
-    fontSize: Typography.fontSize.sm,
-    fontFamily: Typography.fontFamily.medium,
-  },
-  pairedId: {
-    fontSize: Typography.fontSize.lg,
-    fontFamily: Typography.fontFamily.bold,
-    marginTop: 2,
-  },
-  unpairBtn: {
-    height: 40,
-    borderRadius: Radius.md,
-    borderWidth: 1.5,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  unpairText: {
-    fontFamily: Typography.fontFamily.semiBold,
-    fontSize: Typography.fontSize.sm,
-  },
-  qrSquareBtn: {
-    width: 50,
-    height: 50,
-    borderRadius: Radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  inputGroup: {
-    marginBottom: Spacing.md,
-  },
-  label: {
-    fontSize: Typography.fontSize.sm,
-    fontFamily: Typography.fontFamily.medium,
-    marginBottom: Spacing.xs,
-  },
-  input: {
-    height: 50,
-    borderWidth: 1,
-    borderRadius: Radius.md,
-    paddingHorizontal: Spacing.md,
-    fontSize: Typography.fontSize.base,
-    fontFamily: Typography.fontFamily.regular,
-  },
-  button: {
+  body: { paddingHorizontal: Spacing.md, paddingBottom: Spacing['3xl'] },
+  cardTitle: { fontSize: 18, fontFamily: Typography.fontFamily.bold, color: Colors.light.text },
+  idRow: { flexDirection: 'row', gap: 10, alignItems: 'center' },
+  qrBtn: {
+    width: 52,
     height: 52,
-    borderRadius: Radius.md,
+    borderRadius: 12,
+    backgroundColor: Palette.chocolate,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: Spacing.xl,
   },
-  buttonText: {
-    color: '#FFF8F0',
-    fontSize: Typography.fontSize.md,
-    fontFamily: Typography.fontFamily.semiBold,
-  },
+  error: { marginTop: 12, color: Colors.light.danger, fontFamily: Typography.fontFamily.medium },
+  ok: { marginTop: 12, color: Colors.light.success, fontFamily: Typography.fontFamily.medium },
 });

@@ -6,7 +6,7 @@ export default function AdminModelDeployment() {
   const [isDragging, setIsDragging] = useState(false);
   const [versions, setVersions] = useState([]);
   const [hoveredInfo, setHoveredInfo] = useState(null);
-  const [selectedTask, setSelectedTask] = useState('variety');
+  const [selectedTask, setSelectedTask] = useState('five_class');
   const [showUploadToast, setShowUploadToast] = useState(false);
   const [filterType, setFilterType] = useState('All');
 
@@ -59,24 +59,15 @@ export default function AdminModelDeployment() {
             </p>
 
             <div className="flex items-center justify-center gap-6 mb-4">
-              <label className="text-sm font-bold text-gray-500">Select Model Task:</label>
+              <label className="text-sm font-bold text-gray-500">Model:</label>
               <label className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 cursor-pointer transition-all ${
-                selectedTask === 'variety' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300'
+                selectedTask === 'five_class' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300'
               }`}>
-                <input type="radio" name="task" value="variety" checked={selectedTask === 'variety'} onChange={() => setSelectedTask('variety')} className="sr-only" />
+                <input type="radio" name="task" value="five_class" checked={selectedTask === 'five_class'} onChange={() => setSelectedTask('five_class')} className="sr-only" />
                 <span className="w-3 h-3 rounded-full border-2 flex items-center justify-center border-current">
-                  {selectedTask === 'variety' && <span className="w-1.5 h-1.5 rounded-full bg-current" />}
+                  {selectedTask === 'five_class' && <span className="w-1.5 h-1.5 rounded-full bg-current" />}
                 </span>
-                <span className="font-bold text-sm">Variety (Model A)</span>
-              </label>
-              <label className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 cursor-pointer transition-all ${
-                selectedTask === 'quality' ? 'border-purple-500 bg-purple-50 text-purple-700' : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300'
-              }`}>
-                <input type="radio" name="task" value="quality" checked={selectedTask === 'quality'} onChange={() => setSelectedTask('quality')} className="sr-only" />
-                <span className="w-3 h-3 rounded-full border-2 flex items-center justify-center border-current">
-                  {selectedTask === 'quality' && <span className="w-1.5 h-1.5 rounded-full bg-current" />}
-                </span>
-                <span className="font-bold text-sm">Quality (Model B)</span>
+                <span className="font-bold text-sm">5-Class YOLOv8n (TFLite)</span>
               </label>
             </div>
 

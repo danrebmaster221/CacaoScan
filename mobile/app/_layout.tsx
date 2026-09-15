@@ -20,6 +20,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { Colors } from '@/constants/theme';
 import { CacaoThemeProvider } from '@/context/ThemeContext';
+import { ESP32Provider } from '@/context/ESP32Context';
 
 // Prevent splash screen from auto-hiding
 SplashScreen.preventAutoHideAsync();
@@ -112,10 +113,12 @@ function RootApp({ fontsLoaded }: { fontsLoaded: boolean }) {
 
   return (
     <AuthProvider>
-      <ThemeProvider value={colorScheme === 'dark' ? CacaoDarkTheme : CacaoLightTheme}>
-        <RootLayoutNav fontsLoaded={fontsLoaded} />
-        <StatusBar style="auto" />
-      </ThemeProvider>
+      <ESP32Provider>
+        <ThemeProvider value={colorScheme === 'dark' ? CacaoDarkTheme : CacaoLightTheme}>
+          <RootLayoutNav fontsLoaded={fontsLoaded} />
+          <StatusBar style="auto" />
+        </ThemeProvider>
+      </ESP32Provider>
     </AuthProvider>
   );
 }

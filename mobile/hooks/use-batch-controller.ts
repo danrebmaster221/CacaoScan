@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/services/supabase';
 import { useAuth } from '@/context/AuthContext';
+import { type OperationalClass, batchCountKey } from '@/utils/classification';
 
 export interface Batch {
   id: string;
   user_id: string;
+  machine_id?: string | null;
   batch_name: string;
   harvest_date: string;
   target_bean_count: number;
@@ -63,9 +65,13 @@ export function useBatchController() {
     };
   }, [activeBatch?.id]);
 
-  // Computed values
+  // All five operational classes (matches generated total_beans)
   const totalBeans = activeBatch
-    ? activeBatch.criollo_count + activeBatch.forastero_count + activeBatch.trinitario_count
+    ? activeBatch.criollo_count +
+      activeBatch.forastero_count +
+      activeBatch.trinitario_count +
+      activeBatch.needs_drying_count +
+      activeBatch.rejected_count
     : 0;
 
   // Timer management
@@ -244,15 +250,22 @@ export function useBatchController() {
     }
   }, [activeBatch, elapsedSeconds]);
 
-  // Optimistic UI update from WebSocket to instantly reflect on screen
-  const incrementBean = useCallback((variety: string, quality: string) => {
+  // Optimistic UI update — one counter per operational class
+  const incrementBean = useCallback((operationalClass: OperationalClass) => {
     setActiveBatch((prev) => {
       if (!prev) return prev;
-      return {
-        ...prev,
-        [`${variety}_count`]: prev[`${variety}_count` as keyof Batch] as number + 1,
-        [`${quality}_count`]: prev[`${quality}_count` as keyof Batch] as number + 1,
-      };
+      const key = batchCountKey(operationalClass) as keyof Batch;
+      const nextCount = (prev[key] as number) + 1;
+      const next = { ...prev, [key]: nextCount };
+      next.export_grade_count =
+        next.criollo_count + next.forastero_count + next.trinitario_count;
+      next.total_beans =
+        next.criollo_count +
+        next.forastero_count +
+        next.trinitario_count +
+        next.needs_drying_count +
+        next.rejected_count;
+      return next;
     });
   }, []);
 

@@ -5,14 +5,14 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  ActivityIndicator,
   Image,
 } from 'react-native';
-import { Stack, useRouter } from 'expo-router';
-import { Colors, Typography, Spacing, Radius, Shadows } from '@/constants/theme';
+import { Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { Colors, Typography, Spacing, Radius, Palette } from '@/constants/theme';
 import { supabase } from '@/services/supabase';
 import { useAuth } from '@/context/AuthContext';
+import { StickyHeader, Card, BrownButton } from '@/components/redesign/ui';
 
 const ESP32_DEFAULT_IP = '192.168.4.1';
 
@@ -24,9 +24,9 @@ interface ROIBox {
 }
 
 const DEFAULT_ROIS: ROIBox[] = [
-  { x: 160, y: 150, w: 120, h: 200 },   // Left pocket
-  { x: 420, y: 150, w: 120, h: 200 },   // Center pocket
-  { x: 680, y: 150, w: 120, h: 200 },   // Right pocket
+  { x: 160, y: 150, w: 120, h: 200 },
+  { x: 420, y: 150, w: 120, h: 200 },
+  { x: 680, y: 150, w: 120, h: 200 },
 ];
 
 const POCKET_LABELS = ['Left', 'Center', 'Right'];
@@ -34,7 +34,6 @@ const NUDGE_STEP = 5;
 const SCALE_STEP = 10;
 
 export default function VisionCalibrationScreen() {
-  const router = useRouter();
   const theme = Colors.light;
   const { user } = useAuth();
   const [connected, setConnected] = useState(false);
@@ -50,11 +49,12 @@ export default function VisionCalibrationScreen() {
     setLoading(true);
     setStatus('Connecting...');
     try {
-      const res = await fetch(`http://${ESP32_DEFAULT_IP}/capture`, { signal: AbortSignal.timeout(5000) });
+      const res = await fetch(`http://${ESP32_DEFAULT_IP}/capture`, {
+        signal: AbortSignal.timeout(5000),
+      });
       if (res.ok) {
         const blob = await res.blob();
-        const uri = URL.createObjectURL(blob);
-        setFrameUri(uri);
+        setFrameUri(URL.createObjectURL(blob));
         setConnected(true);
         setStatus('Connected — Frame captured');
       } else {
@@ -69,18 +69,20 @@ export default function VisionCalibrationScreen() {
 
   const handleRefreshFrame = async () => {
     try {
-      const res = await fetch(`http://${ESP32_DEFAULT_IP}/capture`, { signal: AbortSignal.timeout(5000) });
+      const res = await fetch(`http://${ESP32_DEFAULT_IP}/capture`, {
+        signal: AbortSignal.timeout(5000),
+      });
       if (res.ok) {
         const blob = await res.blob();
         setFrameUri(URL.createObjectURL(blob));
       }
     } catch {
-      // Keep existing frame
+      // keep existing frame
     }
   };
 
   const nudge = (dir: 'up' | 'down' | 'left' | 'right') => {
-    setRois(prev => {
+    setRois((prev) => {
       const next = [...prev];
       const roi = { ...next[selectedPocket] };
       if (dir === 'up') roi.y -= NUDGE_STEP;
@@ -93,7 +95,7 @@ export default function VisionCalibrationScreen() {
   };
 
   const scale = (delta: number) => {
-    setRois(prev => {
+    setRois((prev) => {
       const next = [...prev];
       const roi = { ...next[selectedPocket] };
       roi.w = Math.max(20, roi.w + delta);
@@ -124,177 +126,244 @@ export default function VisionCalibrationScreen() {
   };
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: theme.background }}>
+    <ScrollView style={{ flex: 1, backgroundColor: theme.background }} contentContainerStyle={styles.scroll}>
       <Stack.Screen options={{ headerShown: false }} />
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color={theme.text} />
-            <Text style={[styles.backText, { color: theme.text }]}>Vision Calibration</Text>
+      <StickyHeader
+        title="Vision Calibration"
+        subtitle="Align AI detection zones with the machine's physical sorting pockets."
+      />
+
+      <Card style={styles.card}>
+        <View style={styles.statusRow}>
+          <Ionicons
+            name={connected ? 'checkmark-circle' : 'alert-circle'}
+            size={22}
+            color={connected ? theme.success : theme.warning}
+          />
+          <Text style={[styles.statusText, { color: theme.text }]}>{status}</Text>
+        </View>
+        {!connected && (
+          <BrownButton
+            title={loading ? 'Connecting…' : 'Connect & Capture Frame'}
+            onPress={handleConnect}
+            disabled={loading}
+          />
+        )}
+      </Card>
+
+      <Card style={styles.card}>
+        <View style={styles.cardHeader}>
+          <Text style={styles.cardTitle}>Camera Frame</Text>
+          {connected && (
+            <TouchableOpacity onPress={handleRefreshFrame}>
+              <Ionicons name="refresh-outline" size={20} color={Palette.chocolate} />
+            </TouchableOpacity>
+          )}
+        </View>
+        <View style={styles.previewBox}>
+          {frameUri ? (
+            <Image source={{ uri: frameUri }} style={styles.frameImage} resizeMode="cover" />
+          ) : (
+            <View style={styles.previewEmpty}>
+              <Ionicons name="camera-outline" size={32} color="#c9b3a4" />
+              <Text style={styles.previewEmptyText}>No camera frame yet</Text>
+            </View>
+          )}
+          {rois.map((roi, i) => (
+            <View
+              key={i}
+              style={[
+                styles.roiBox,
+                {
+                  left: `${(roi.x / 1024) * 100}%`,
+                  top: `${(roi.y / 559) * 100}%`,
+                  width: `${(roi.w / 1024) * 100}%`,
+                  height: `${(roi.h / 559) * 100}%`,
+                  borderColor: i === selectedPocket ? Palette.green : `${Palette.green}88`,
+                  borderWidth: i === selectedPocket ? 2 : 1,
+                },
+              ]}
+            >
+              <Text style={styles.roiLabel}>{POCKET_LABELS[i]}</Text>
+            </View>
+          ))}
+        </View>
+      </Card>
+
+      <Card style={styles.card}>
+        <Text style={styles.cardTitle}>ROI Pocket Selection</Text>
+        <View style={styles.tabRow}>
+          {POCKET_LABELS.map((label, i) => (
+            <TouchableOpacity
+              key={i}
+              style={[styles.tab, selectedPocket === i && styles.tabActive]}
+              onPress={() => setSelectedPocket(i)}
+            >
+              <Text style={[styles.tabText, selectedPocket === i && styles.tabTextActive]}>
+                {label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <Text style={styles.controlLabel}>Nudge Position</Text>
+        <View style={styles.dpadContainer}>
+          <TouchableOpacity style={styles.dpadBtn} onPress={() => nudge('up')}>
+            <Ionicons name="arrow-up" size={20} color={theme.text} />
+          </TouchableOpacity>
+          <View style={styles.dpadMiddleRow}>
+            <TouchableOpacity style={styles.dpadBtn} onPress={() => nudge('left')}>
+              <Ionicons name="arrow-back" size={20} color={theme.text} />
+            </TouchableOpacity>
+            <View style={styles.dpadCenter}>
+              <Text style={styles.dpadCenterText}>{POCKET_LABELS[selectedPocket]}</Text>
+            </View>
+            <TouchableOpacity style={styles.dpadBtn} onPress={() => nudge('right')}>
+              <Ionicons name="arrow-forward" size={20} color={theme.text} />
+            </TouchableOpacity>
+          </View>
+          <TouchableOpacity style={styles.dpadBtn} onPress={() => nudge('down')}>
+            <Ionicons name="arrow-down" size={20} color={theme.text} />
           </TouchableOpacity>
         </View>
 
-        <Text style={[styles.description, { color: theme.textSecondary }]}>
-          Calibrate the AI detection zones to precisely match your machine&apos;s physical sorting pockets.
+        <Text style={styles.controlLabel}>Scale Size</Text>
+        <View style={styles.scaleRow}>
+          <TouchableOpacity style={styles.dpadBtn} onPress={() => scale(-SCALE_STEP)}>
+            <Ionicons name="remove" size={24} color={theme.text} />
+          </TouchableOpacity>
+          <Text style={styles.scaleValue}>
+            {rois[selectedPocket].w} × {rois[selectedPocket].h}
+          </Text>
+          <TouchableOpacity style={styles.dpadBtn} onPress={() => scale(SCALE_STEP)}>
+            <Ionicons name="add" size={24} color={theme.text} />
+          </TouchableOpacity>
+        </View>
+      </Card>
+
+      <BrownButton
+        title={saving ? 'Saving…' : 'Save Calibration to Cloud'}
+        onPress={handleSaveToCloud}
+        disabled={saving}
+        icon="cloud-upload-outline"
+      />
+      {saveStatus && (
+        <Text
+          style={[
+            styles.saveStatusText,
+            { color: saveStatus.includes('Failed') ? theme.danger : theme.success },
+          ]}
+        >
+          {saveStatus}
         </Text>
-
-        {/* Connection */}
-        <View style={[styles.card, { backgroundColor: theme.surface }, Shadows.sm]}>
-          <View style={styles.statusRow}>
-            <Ionicons name={connected ? 'checkmark-circle' : 'alert-circle'} size={24} color={connected ? theme.success : theme.warning} />
-            <Text style={[styles.statusText, { color: theme.text }]}>{status}</Text>
-          </View>
-          {!connected && (
-            <TouchableOpacity style={[styles.connectBtn, { backgroundColor: theme.primary }]} onPress={handleConnect} disabled={loading}>
-              {loading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.connectBtnText}>Connect &amp; Capture Frame</Text>}
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {/* Live Frame Preview with ROI Overlays */}
-        <View style={[styles.card, { backgroundColor: theme.surface }, Shadows.sm]}>
-          <View style={styles.cardHeader}>
-            <Text style={[styles.cardTitle, { color: theme.text }]}>Camera Frame</Text>
-            {connected && (
-              <TouchableOpacity onPress={handleRefreshFrame}>
-                <Ionicons name="refresh-outline" size={20} color={theme.primary} />
-              </TouchableOpacity>
-            )}
-          </View>
-          <View style={[styles.previewBox, { backgroundColor: '#1a1a1a', borderColor: theme.border }]}>
-            <View style={{ width: '100%', height: '100%' }}>
-              {frameUri ? (
-                <Image
-                  source={{ uri: frameUri }}
-                  style={styles.frameImage}
-                  resizeMode="cover"
-                />
-              ) : (
-                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: Typography.fontSize.sm }}>
-                    No camera frame yet
-                  </Text>
-                </View>
-              )}
-                {/* ROI Overlay Boxes */}
-                {rois.map((roi, i) => (
-                  <View
-                    key={i}
-                    style={[
-                      styles.roiBox,
-                      {
-                        left: `${(roi.x / 1024) * 100}%`,
-                        top: `${(roi.y / 559) * 100}%`,
-                        width: `${(roi.w / 1024) * 100}%`,
-                        height: `${(roi.h / 559) * 100}%`,
-                        borderColor: i === selectedPocket ? '#00FF00' : '#00FF0088',
-                        borderWidth: i === selectedPocket ? 2 : 1,
-                      },
-                    ]}
-                  >
-                    <Text style={styles.roiLabel}>{POCKET_LABELS[i]}</Text>
-                  </View>
-                ))}
-              </View>
-          </View>
-        </View>
-
-        {/* Pocket Selector Tabs */}
-        <View style={[styles.card, { backgroundColor: theme.surface }, Shadows.sm]}>
-          <Text style={[styles.cardTitle, { color: theme.text }]}>ROI Pocket Selection</Text>
-          <View style={styles.tabRow}>
-            {POCKET_LABELS.map((label, i) => (
-              <TouchableOpacity
-                key={i}
-                style={[styles.tab, selectedPocket === i && { backgroundColor: theme.primary }]}
-                onPress={() => setSelectedPocket(i)}
-              >
-                <Text style={[styles.tabText, { color: selectedPocket === i ? '#FFF8F0' : theme.textSecondary }]}>{label}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {/* D-Pad Nudge Controls */}
-          <Text style={[styles.controlLabel, { color: theme.textSecondary }]}>Nudge Position</Text>
-          <View style={styles.dpadContainer}>
-            <TouchableOpacity style={[styles.dpadBtn, { backgroundColor: theme.background, borderColor: theme.border }]} onPress={() => nudge('up')}>
-              <Ionicons name="arrow-up" size={20} color={theme.text} />
-            </TouchableOpacity>
-            <View style={styles.dpadMiddleRow}>
-              <TouchableOpacity style={[styles.dpadBtn, { backgroundColor: theme.background, borderColor: theme.border }]} onPress={() => nudge('left')}>
-                <Ionicons name="arrow-back" size={20} color={theme.text} />
-              </TouchableOpacity>
-              <View style={[styles.dpadCenter, { backgroundColor: theme.border }]}>
-                <Text style={{ fontSize: 10, color: theme.textSecondary, fontFamily: Typography.fontFamily.medium }}>{POCKET_LABELS[selectedPocket]}</Text>
-              </View>
-              <TouchableOpacity style={[styles.dpadBtn, { backgroundColor: theme.background, borderColor: theme.border }]} onPress={() => nudge('right')}>
-                <Ionicons name="arrow-forward" size={20} color={theme.text} />
-              </TouchableOpacity>
-            </View>
-            <TouchableOpacity style={[styles.dpadBtn, { backgroundColor: theme.background, borderColor: theme.border }]} onPress={() => nudge('down')}>
-              <Ionicons name="arrow-down" size={20} color={theme.text} />
-            </TouchableOpacity>
-          </View>
-
-          {/* Scale Controls */}
-          <Text style={[styles.controlLabel, { color: theme.textSecondary }]}>Scale Size</Text>
-          <View style={styles.scaleRow}>
-            <TouchableOpacity style={[styles.scaleBtn, { backgroundColor: theme.background, borderColor: theme.border }]} onPress={() => scale(-SCALE_STEP)}>
-              <Ionicons name="remove" size={24} color={theme.text} />
-            </TouchableOpacity>
-            <Text style={[styles.scaleValue, { color: theme.text }]}>{rois[selectedPocket].w} × {rois[selectedPocket].h}</Text>
-            <TouchableOpacity style={[styles.scaleBtn, { backgroundColor: theme.background, borderColor: theme.border }]} onPress={() => scale(SCALE_STEP)}>
-              <Ionicons name="add" size={24} color={theme.text} />
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Save to Cloud */}
-        <TouchableOpacity style={[styles.saveBtn, { backgroundColor: theme.primary }]} onPress={handleSaveToCloud} disabled={saving}>
-          {saving ? <ActivityIndicator color="#fff" /> : (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
-              <Ionicons name="cloud-upload-outline" size={20} color="#FFF8F0" />
-              <Text style={styles.saveBtnText}>Save Calibration to Cloud</Text>
-            </View>
-          )}
-        </TouchableOpacity>
-        {saveStatus && (
-          <Text style={[styles.saveStatusText, { color: saveStatus.includes('Failed') ? theme.danger : theme.success }]}>{saveStatus}</Text>
-        )}
-      </View>
+      )}
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.lg },
-  header: { paddingTop: 64, paddingBottom: Spacing.md },
-  backButton: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: Spacing.sm },
-  backText: { fontSize: Typography.fontSize.lg, fontFamily: Typography.fontFamily.medium },
-  description: { fontSize: Typography.fontSize.sm, fontFamily: Typography.fontFamily.medium, marginBottom: Spacing.lg, lineHeight: 20 },
-  card: { borderRadius: Radius.lg, padding: Spacing.lg, marginBottom: Spacing.lg },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.md },
-  cardTitle: { fontSize: Typography.fontSize.md, fontFamily: Typography.fontFamily.semiBold },
+  scroll: { paddingHorizontal: Spacing.md, paddingBottom: Spacing['2xl'] },
+  card: { marginTop: Spacing.md, padding: Spacing.md },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.md,
+  },
+  cardTitle: {
+    fontSize: 18,
+    fontFamily: Typography.fontFamily.bold,
+    color: Palette.brownText,
+    marginBottom: Spacing.sm,
+  },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginBottom: Spacing.md },
-  statusText: { fontSize: Typography.fontSize.sm, fontFamily: Typography.fontFamily.medium, flex: 1 },
-  connectBtn: { height: 44, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
-  connectBtnText: { color: '#FFF8F0', fontFamily: Typography.fontFamily.semiBold, fontSize: Typography.fontSize.sm },
-  previewBox: { aspectRatio: 1024/559, width: '100%', maxWidth: 900, alignSelf: 'center', borderRadius: Radius.md, borderWidth: 1, overflow: 'hidden', position: 'relative', alignItems: 'center', justifyContent: 'center' },
+  statusText: { fontSize: 14, fontFamily: Typography.fontFamily.medium, flex: 1 },
+  previewBox: {
+    aspectRatio: 1024 / 559,
+    width: '100%',
+    borderRadius: Radius.md,
+    overflow: 'hidden',
+    backgroundColor: '#241812',
+    position: 'relative',
+  },
   frameImage: { width: '100%', height: '100%' },
-  roiBox: { position: 'absolute', borderStyle: 'solid', borderRadius: 2, alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 2 },
-  roiLabel: { color: '#00FF00', fontSize: 9, fontFamily: Typography.fontFamily.bold },
+  previewEmpty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
+  previewEmptyText: { color: '#bda99b', fontSize: 13, fontFamily: Typography.fontFamily.medium },
+  roiBox: {
+    position: 'absolute',
+    borderStyle: 'solid',
+    borderRadius: 2,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    paddingBottom: 2,
+  },
+  roiLabel: { color: Palette.green, fontSize: 9, fontFamily: Typography.fontFamily.bold },
   tabRow: { flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.lg },
-  tab: { flex: 1, height: 40, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F0E6D9' },
-  tabText: { fontFamily: Typography.fontFamily.semiBold, fontSize: Typography.fontSize.sm },
-  controlLabel: { fontSize: Typography.fontSize.xs, fontFamily: Typography.fontFamily.semiBold, letterSpacing: 1, marginBottom: Spacing.sm, textTransform: 'uppercase' },
+  tab: {
+    flex: 1,
+    height: 40,
+    borderRadius: Radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Palette.iconBg,
+  },
+  tabActive: { backgroundColor: Palette.chocolate },
+  tabText: {
+    fontFamily: Typography.fontFamily.semiBold,
+    fontSize: Typography.fontSize.sm,
+    color: Palette.muted,
+  },
+  tabTextActive: { color: '#fff' },
+  controlLabel: {
+    fontSize: 12,
+    fontFamily: Typography.fontFamily.semiBold,
+    letterSpacing: 0.6,
+    marginBottom: Spacing.sm,
+    textTransform: 'uppercase',
+    color: Palette.muted,
+  },
   dpadContainer: { alignItems: 'center', marginBottom: Spacing.lg },
   dpadMiddleRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  dpadBtn: { width: 48, height: 48, borderRadius: Radius.md, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  dpadCenter: { width: 48, height: 48, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
-  scaleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.lg, marginBottom: Spacing.md },
-  scaleBtn: { width: 48, height: 48, borderRadius: Radius.md, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  scaleValue: { fontSize: Typography.fontSize.md, fontFamily: Typography.fontFamily.bold, minWidth: 80, textAlign: 'center' },
-  saveBtn: { height: 52, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.sm },
-  saveBtnText: { color: '#FFF8F0', fontSize: Typography.fontSize.md, fontFamily: Typography.fontFamily.semiBold },
-  saveStatusText: { textAlign: 'center', fontSize: Typography.fontSize.sm, fontFamily: Typography.fontFamily.medium, marginBottom: Spacing.xl },
+  dpadBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Palette.borderWarm,
+    backgroundColor: Palette.creamField,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dpadCenter: {
+    width: 48,
+    height: 48,
+    borderRadius: Radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Palette.iconBg,
+  },
+  dpadCenterText: {
+    fontSize: 10,
+    color: Palette.muted,
+    fontFamily: Typography.fontFamily.medium,
+  },
+  scaleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.lg,
+  },
+  scaleValue: {
+    fontSize: Typography.fontSize.md,
+    fontFamily: Typography.fontFamily.bold,
+    minWidth: 80,
+    textAlign: 'center',
+    color: Palette.brownText,
+  },
+  saveStatusText: {
+    textAlign: 'center',
+    fontSize: Typography.fontSize.sm,
+    fontFamily: Typography.fontFamily.medium,
+    marginTop: Spacing.sm,
+  },
 });
