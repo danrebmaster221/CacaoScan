@@ -20,7 +20,23 @@ import {
 const STORAGE_KEY = 'cacaoscan.edge_host';
 const DEFAULT_HOST = Platform.OS === 'web' ? '127.0.0.1' : '192.168.1.11';
 const WS_PORT = 8080;
+const EDGE_PORT = 5000;
 const CONNECT_TIMEOUT_MS = 5000;
+
+export type EdgeIdentityStatus =
+  | 'unknown'
+  | 'checking'
+  | 'matched'
+  | 'mismatch'
+  | 'unpaired'
+  | 'unreachable';
+
+function hostOnly(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  const withoutScheme = trimmed.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
+  return withoutScheme.split('/')[0].split(':')[0];
+}
 
 export type MachineState = 'STOPPED' | 'RUNNING' | 'PAUSED';
 
@@ -42,6 +58,7 @@ interface ESP32ContextValue {
   machineState: MachineState;
   serverHost: string;
   setServerHost: (host: string) => void;
+  edgeIdentity: EdgeIdentityStatus;
   connect: (hostOverride?: string) => Promise<boolean>;
   disconnect: () => void;
   enableDemoMode: () => void;
@@ -55,7 +72,7 @@ interface ESP32ContextValue {
 const ESP32Context = createContext<ESP32ContextValue | null>(null);
 
 function wsUrlFor(host: string) {
-  const cleaned = host.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
+  const cleaned = hostOnly(host) || DEFAULT_HOST;
   return `ws://${cleaned}:${WS_PORT}`;
 }
 
@@ -65,6 +82,7 @@ export function ESP32Provider({ children }: { children: React.ReactNode }) {
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [machineState, setMachineState] = useState<MachineState>('STOPPED');
   const [serverHost, setServerHostState] = useState(DEFAULT_HOST);
+  const [edgeIdentity, setEdgeIdentity] = useState<EdgeIdentityStatus>('unknown');
   const [currentClassification, setCurrentClassification] = useState<ClassResult | null>(null);
   const [recentClassifications, setRecentClassifications] = useState<ClassResult[]>([]);
 
@@ -75,22 +93,64 @@ export function ESP32Provider({ children }: { children: React.ReactNode }) {
   const batchIdRef = useRef<string | null>(null);
   const beanHandlerRef = useRef<BeanHandler | undefined>(undefined);
   const hostRef = useRef(DEFAULT_HOST);
+  const identitySeq = useRef(0);
+
+  const refreshEdgeIdentity = useCallback(async (host: string) => {
+    const cleaned = hostOnly(host);
+    const seq = ++identitySeq.current;
+    if (!cleaned) {
+      setEdgeIdentity('unpaired');
+      return;
+    }
+    setEdgeIdentity('checking');
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (seq !== identitySeq.current) return;
+      if (!user) {
+        setEdgeIdentity('unpaired');
+        return;
+      }
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('linked_machine_id')
+        .eq('id', user.id)
+        .maybeSingle();
+      if (seq !== identitySeq.current) return;
+      const linked =
+        !error && typeof data?.linked_machine_id === 'string' ? data.linked_machine_id.trim() : '';
+      if (!linked) {
+        setEdgeIdentity('unpaired');
+        return;
+      }
+      const res = await fetch(`http://${cleaned}:${EDGE_PORT}/health`, {
+        signal: AbortSignal.timeout(4000),
+      });
+      const body = (await res.text()).trim();
+      if (seq !== identitySeq.current) return;
+      setEdgeIdentity(res.ok && body === linked ? 'matched' : 'mismatch');
+    } catch {
+      if (seq === identitySeq.current) setEdgeIdentity('unreachable');
+    }
+  }, []);
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY).then((saved) => {
-      if (saved) {
-        hostRef.current = saved;
-        setServerHostState(saved);
-      }
+      const next = saved ? hostOnly(saved) || DEFAULT_HOST : DEFAULT_HOST;
+      hostRef.current = next;
+      setServerHostState(next);
+      refreshEdgeIdentity(next);
     });
-  }, []);
+  }, [refreshEdgeIdentity]);
 
   const setServerHost = useCallback((host: string) => {
-    const next = host.trim() || DEFAULT_HOST;
+    const next = hostOnly(host) || DEFAULT_HOST;
     hostRef.current = next;
     setServerHostState(next);
     AsyncStorage.setItem(STORAGE_KEY, next).catch(() => {});
-  }, []);
+    refreshEdgeIdentity(next);
+  }, [refreshEdgeIdentity]);
 
   const bindBatch = useCallback((batchId: string | null, onBean?: BeanHandler) => {
     batchIdRef.current = batchId;
@@ -315,6 +375,7 @@ export function ESP32Provider({ children }: { children: React.ReactNode }) {
       machineState,
       serverHost,
       setServerHost,
+      edgeIdentity,
       connect,
       disconnect,
       enableDemoMode,
@@ -330,6 +391,7 @@ export function ESP32Provider({ children }: { children: React.ReactNode }) {
       machineState,
       serverHost,
       setServerHost,
+      edgeIdentity,
       connect,
       disconnect,
       enableDemoMode,

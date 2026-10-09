@@ -10,7 +10,8 @@ import {
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, Typography, Spacing, Radius, Shadows, Palette } from '@/constants/theme';
+import { Colors, Typography, Spacing, Palette } from '@/constants/theme';
+import { useESP32Connection } from '@/context/ESP32Context';
 import {
   StickyHeader,
   Card,
@@ -21,7 +22,6 @@ import {
   SectionLabel,
 } from '@/components/redesign/ui';
 
-const ESP32_DEFAULT_IP = '192.168.1.11';
 const POLL_INTERVAL = 3000;
 
 interface TelemetryData {
@@ -33,16 +33,16 @@ interface TelemetryData {
 export default function HardwareMonitorScreen() {
   const theme = Colors.light;
   const router = useRouter();
+  const { serverHost, setServerHost, edgeIdentity } = useESP32Connection();
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [serverIp, setServerIp] = useState(ESP32_DEFAULT_IP);
   const [telemetry, setTelemetry] = useState<TelemetryData | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchTelemetry = async () => {
     const start = Date.now();
     try {
-      const res = await fetch(`http://${serverIp}/telemetry`, {
+      const res = await fetch(`http://${serverHost}/telemetry`, {
         signal: AbortSignal.timeout(3000),
       });
       const latency = Date.now() - start;
@@ -72,7 +72,7 @@ export default function HardwareMonitorScreen() {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [connected, serverIp]);
+  }, [connected, serverHost]);
 
   const metrics = [
     {
@@ -145,14 +145,16 @@ export default function HardwareMonitorScreen() {
             <Text style={styles.cardTitle}>AI Server IP Address</Text>
           </View>
           <Text style={[styles.cardSub, { marginTop: 6 }]}>
-            Both the phone and ESP32 join the same local network. Set the edge server address here.
+            Shared phone host for the port 8080 scanner and the port 5000 health check. This does not change the ESP32 address, and telemetry is not available from this screen.
           </Text>
           <FieldInput
-            value={serverIp}
-            onChangeText={setServerIp}
+            value={serverHost}
+            onChangeText={setServerHost}
             autoCapitalize="none"
+            autoCorrect={false}
             style={{ marginTop: 12, fontFamily: Typography.fontFamily.medium }}
           />
+          <Text style={[styles.cardSub, { marginTop: 8 }]}>Edge identity: {edgeIdentity}</Text>
         </Card>
       </View>
     </ScrollView>

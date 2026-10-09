@@ -184,7 +184,9 @@ app = Flask(__name__)
 print("[INIT] Loading CacaoScan AI Brain (best.pt)...")
 model = YOLO('best.pt')
 
-cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+# 0 = laptop webcam, 1 = usually USB OV camera (try 2 if still wrong)
+CAMERA_INDEX = 1
+cap = cv2.VideoCapture(CAMERA_INDEX, cv2.CAP_DSHOW)
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 640)
 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)

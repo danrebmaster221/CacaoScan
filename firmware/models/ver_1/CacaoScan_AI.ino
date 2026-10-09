@@ -34,7 +34,7 @@ const unsigned long DEBOUNCE_MS = 50;
 Preferences prefs;
 WiFiManager wm;
 
-char server_ip[24] = "192.168.1.11";
+char server_ip[24] = "192.168.1.70";
 char active_edge_ip[24] = "";
 const int SERVER_PORT = 5000;
 const char MACHINE_ID[] = "CS-0001";
@@ -222,7 +222,7 @@ void flickGate(int pin, const char* label) {
 
 void setupWiFiPortal() {
     prefs.begin("cacaoscan", false);
-    String savedIP = prefs.getString("server_ip", "192.168.1.11");
+    String savedIP = prefs.getString("server_ip", "192.168.1.70");
     savedIP.toCharArray(server_ip, sizeof(server_ip));
 
     WiFiManagerParameter custom_server_ip("server_ip", "Laptop AI Server IP", server_ip, 24);
