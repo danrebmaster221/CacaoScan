@@ -1,96 +1,66 @@
-import React, { useState, useEffect, useRef } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  ActivityIndicator,
-  TextInput,
-} from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Palette } from '@/constants/theme';
-import { useESP32Connection } from '@/context/ESP32Context';
+import { useESP32Connection, type EdgeIdentityStatus } from '@/context/ESP32Context';
 import {
   StickyHeader,
   Card,
   OfflineBanner,
   BrownButton,
-  FieldLabel,
   FieldInput,
   SectionLabel,
 } from '@/components/redesign/ui';
 
-const POLL_INTERVAL = 3000;
-
-interface TelemetryData {
-  rssi?: number;
-  edgeLatency?: number;
-  cloudRtt?: number;
-}
+const STATUS_TITLE: Record<EdgeIdentityStatus, string> = {
+  unknown: 'Connect to Scanner',
+  checking: 'Connecting…',
+  matched: 'Scanner connected',
+  unpaired: 'No paired machine',
+  mismatch: 'Machine identity mismatch',
+  unreachable: 'Scanner unreachable',
+};
 
 export default function HardwareMonitorScreen() {
   const theme = Colors.light;
   const router = useRouter();
   const { serverHost, setServerHost, edgeIdentity } = useESP32Connection();
-  const [connected, setConnected] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [telemetry, setTelemetry] = useState<TelemetryData | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const fetchTelemetry = async () => {
-    const start = Date.now();
-    try {
-      const res = await fetch(`http://${serverHost}/telemetry`, {
-        signal: AbortSignal.timeout(3000),
-      });
-      const latency = Date.now() - start;
-      if (res.ok) {
-        const data = await res.json();
-        setTelemetry({ ...data, edgeLatency: latency });
-        setConnected(true);
-      } else {
-        setConnected(false);
-      }
-    } catch {
-      setConnected(false);
-      setTelemetry(null);
-    }
-  };
-
-  const handleConnect = async () => {
-    setLoading(true);
-    await fetchTelemetry();
-    setLoading(false);
-  };
+  const scannerConnected = edgeIdentity === 'matched';
+  const [hostInput, setHostInput] = useState(serverHost);
+  const editingRef = useRef(false);
 
   useEffect(() => {
-    if (connected) {
-      pollRef.current = setInterval(fetchTelemetry, POLL_INTERVAL);
-    }
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
-  }, [connected, serverHost]);
+    if (!editingRef.current) setHostInput(serverHost);
+  }, [serverHost]);
+
+  const handleHostChange = (value: string) => {
+    editingRef.current = true;
+    setHostInput(value);
+  };
+
+  const handleConnect = () => {
+    editingRef.current = false;
+    setServerHost(hostInput);
+  };
 
   const metrics = [
     {
       icon: 'flash-outline' as const,
       label: 'Edge Latency',
-      value: connected && telemetry?.edgeLatency != null ? `${telemetry.edgeLatency} ms` : '—',
+      value: '—',
       tone: Palette.chocolate,
     },
     {
       icon: 'globe-outline' as const,
       label: 'Cloud RTT',
-      value: connected && telemetry?.cloudRtt != null ? `${telemetry.cloudRtt} ms` : '—',
+      value: '—',
       tone: '#3a7bc2',
     },
     {
       icon: 'wifi-outline' as const,
-      label: connected ? 'Wi-Fi' : 'Wi-Fi: N/A',
-      value: connected && telemetry?.rssi != null ? `${telemetry.rssi} dBm` : '—',
+      label: scannerConnected ? 'Wi-Fi' : 'Wi-Fi: N/A',
+      value: '—',
       tone: Palette.chocolate,
     },
   ];
@@ -105,18 +75,17 @@ export default function HardwareMonitorScreen() {
       />
 
       <View style={styles.body}>
-        {!connected && (
-          <OfflineBanner text="Connection Lost — Scanner Offline" />
+        {!scannerConnected && edgeIdentity !== 'unknown' && edgeIdentity !== 'checking' && (
+          <OfflineBanner text={STATUS_TITLE[edgeIdentity]} />
         )}
         <View style={{ marginTop: Spacing.md }}>
           <BrownButton
-            title={loading ? 'Connecting…' : connected ? 'Refresh Telemetry' : 'Connect to Scanner'}
+            title={STATUS_TITLE[edgeIdentity]}
             onPress={handleConnect}
-            disabled={loading}
+            disabled={edgeIdentity === 'checking'}
             icon="power-outline"
           />
         </View>
-        {loading && <ActivityIndicator style={{ marginTop: 12 }} color={theme.primary} />}
 
         <SectionLabel>Latency Metrics</SectionLabel>
         <View style={styles.metricRow}>
@@ -148,13 +117,13 @@ export default function HardwareMonitorScreen() {
             Shared phone host for the port 8080 scanner and the port 5000 health check. This does not change the ESP32 address, and telemetry is not available from this screen.
           </Text>
           <FieldInput
-            value={serverHost}
-            onChangeText={setServerHost}
+            value={hostInput}
+            onChangeText={handleHostChange}
             autoCapitalize="none"
             autoCorrect={false}
             style={{ marginTop: 12, fontFamily: Typography.fontFamily.medium }}
           />
-          <Text style={[styles.cardSub, { marginTop: 8 }]}>Edge identity: {edgeIdentity}</Text>
+          <Text style={[styles.cardSub, { marginTop: 8 }]}>{STATUS_TITLE[edgeIdentity]}</Text>
         </Card>
       </View>
     </ScrollView>

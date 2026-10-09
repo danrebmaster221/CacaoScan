@@ -98,6 +98,9 @@ export function ESP32Provider({ children }: { children: React.ReactNode }) {
   const refreshEdgeIdentity = useCallback(async (host: string) => {
     const cleaned = hostOnly(host);
     const seq = ++identitySeq.current;
+    const healthUrl = cleaned ? `http://${cleaned}:${EDGE_PORT}/health` : '';
+    console.log('[edge-health] host', cleaned || '(empty)');
+    console.log('[edge-health] url', healthUrl || '(none)');
     if (!cleaned) {
       setEdgeIdentity('unpaired');
       return;
@@ -109,6 +112,7 @@ export function ESP32Provider({ children }: { children: React.ReactNode }) {
       } = await supabase.auth.getUser();
       if (seq !== identitySeq.current) return;
       if (!user) {
+        console.log('[edge-health] linked_machine_id', '(none)');
         setEdgeIdentity('unpaired');
         return;
       }
@@ -120,17 +124,34 @@ export function ESP32Provider({ children }: { children: React.ReactNode }) {
       if (seq !== identitySeq.current) return;
       const linked =
         !error && typeof data?.linked_machine_id === 'string' ? data.linked_machine_id.trim() : '';
+      console.log('[edge-health] linked_machine_id', linked || '(none)');
       if (!linked) {
         setEdgeIdentity('unpaired');
         return;
       }
-      const res = await fetch(`http://${cleaned}:${EDGE_PORT}/health`, {
-        signal: AbortSignal.timeout(4000),
-      });
-      const body = (await res.text()).trim();
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+      }, 4000);
+      let res: Response;
+      let body: string;
+      try {
+        res = await fetch(healthUrl, {
+          signal: controller.signal,
+        });
+        body = (await res.text()).trim();
+      } finally {
+        clearTimeout(timeoutId);
+      }
+      console.log('[edge-health] status', res.status);
+      console.log('[edge-health] body', body);
       if (seq !== identitySeq.current) return;
       setEdgeIdentity(res.ok && body === linked ? 'matched' : 'mismatch');
-    } catch {
+    } catch (error) {
+      const name = error instanceof Error ? error.name : 'unknown';
+      const message = error instanceof Error ? error.message : String(error);
+      console.log('[edge-health] error', name);
+      console.log('[edge-health] message', message);
       if (seq === identitySeq.current) setEdgeIdentity('unreachable');
     }
   }, []);

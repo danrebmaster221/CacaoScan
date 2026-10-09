@@ -1,79 +1,60 @@
-PREPARE MANUAL COMMIT PLAN — READ ONLY
+IMPLEMENT APPROVED HOST-DRAFT FIX
 
-IMPORTANT:
-Do NOT modify any file.
-Do NOT stage anything.
-Do NOT run git add.
-Do NOT run git restore.
-Do NOT run git checkout.
-Do NOT run git commit.
-Do NOT run git push.
-Do NOT modify Git configuration.
-Do NOT create commit messages automatically in Git.
+Implement exactly:
 
-I will manually perform all Git staging and commits myself.
+mobile_edge_identity_18c68ac2.plan(3).md
 
-Inspect the current working tree and prepare instructions for me only.
+Modify ONLY:
 
-We want three clean commits.
+mobile/app/settings/hardware.tsx
 
-COMMIT 1 — ROLE AUTHORIZATION HARDENING
+REQUIREMENTS:
 
-Include:
-- mobile/context/AuthContext.tsx
-- mobile/supabase/harden_profile_role.sql
-- supabase/migrations/20261009170000_harden_profile_role.sql
-- mobile/scripts/verify-role-hardening.mjs
-- ONLY the role-protection portion of mobile/supabase/schema_v2.sql
+1. Add a local draft state for the IP/host input.
 
-COMMIT 2 — MACHINE PAIRING HARDENING
+2. The TextInput must:
+   - display the local draft
+   - update only the local draft while typing
+   - NOT call setServerHost while typing
+   - NOT write AsyncStorage while typing
+   - NOT trigger /health while typing
 
-Include:
-- mobile/app/settings/pairing.tsx
-- supabase/migrations/20261009180000_protect_linked_machine.sql
-- mobile/scripts/verify-pairing-hardening.mjs
-- ONLY the linked-machine protection portion of mobile/supabase/schema_v2.sql
+3. When the screen first receives the saved serverHost:
+   - copy it into the draft only if the user has not started editing
 
-COMMIT 3 — CONTROLLER / EDGE IDENTITY, DISCOVERY, TIMEOUTS, IR LATCH
+4. Preserve the user's in-progress draft:
+   - a later saved-host/context update must not overwrite the draft while editing
 
-Include validated changes from:
-- firmware/models/ver_1/CacaoScan_AI.ino
-- Cacao_Server/edge_server.py
+5. Connect to Scanner must:
+   - stop the editing state
+   - call setServerHost(draftHost)
+   - let the existing shared flow normalize/save the host
+   - run the existing identity check
 
-Include:
-- MACHINE_ID
-- CACAO_MACHINE_ID
-- /health identity
-- /trigger machine_id validation
-- mDNS
-- verified edge-address handling
-- NVS verified fallback/update
-- health timeout fix
-- trigger timeout fix
-- automatic recovery
-- IR1/IR2 latch and re-arm
+6. Keep:
+   - automatic saved-host identity check on initial load
+   - edgeIdentity === "matched" as the only connected state
+   - current status/button text mapping
+   - existing AbortController timeout
+   - existing temporary [edge-health] logs
 
-EXCLUDE:
-- firmware default-IP change to 192.168.1.70
-- CAMERA_INDEX = 1
+7. Do NOT modify:
+   - ESP32Context.tsx
+   - edge_server.py
+   - firmware
+   - Supabase
+   - pairing
+   - home screen
+   - Vision
+   - Manual Override
 
-LEAVE OUT OF ALL THREE COMMITS:
-- mobile/context/ESP32Context.tsx
-- mobile/app/settings/hardware.tsx
-- mobile/package-lock.json
-- package-lock.json
-- mobile/plan/
-- supabase/config.toml
-- supabase/.temp/
+8. Do not stage.
+9. Do not commit.
+10. Do not push.
 
-RETURN ONLY:
-
-1. Exact commands that I should manually type
-2. Which files require git add -p
-3. For every git add -p section, explain which hunks I should answer:
-   y = include
-   n = exclude
-   s = split
-4. Recommended commit message for each commit
-5. Expected git status after each commit
-6. Confirm you performed NO Git-changing command
+After editing return:
+1. exact hardware.tsx diff
+2. confirm typing no longer calls setServerHost
+3. confirm Connect still calls setServerHost
+4. confirm initial saved-host auto-check remains
+5. confirm only hardware.tsx changed
