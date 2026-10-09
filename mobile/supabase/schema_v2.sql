@@ -85,6 +85,40 @@ CREATE POLICY "Users can insert own profile"
   ON profiles FOR INSERT
   WITH CHECK (auth.uid() = id);
 
+-- Normal users cannot change profiles.role. SECURITY INVOKER so current_user
+-- stays the caller. A SECURITY DEFINER function would run as the owner and
+-- would allow every user to set role.
+CREATE OR REPLACE FUNCTION public.protect_profile_role()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $$
+BEGIN
+  IF coalesce(auth.role(), '') IN ('service_role', 'supabase_admin')
+     OR current_user IN ('postgres', 'supabase_admin', 'service_role') THEN
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    NEW.role := 'farmer';
+  ELSIF TG_OP = 'UPDATE' AND NEW.role IS DISTINCT FROM OLD.role THEN
+    NEW.role := OLD.role;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS protect_profile_role ON public.profiles;
+CREATE TRIGGER protect_profile_role
+  BEFORE INSERT OR UPDATE ON public.profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION public.protect_profile_role();
+
+REVOKE ALL ON FUNCTION public.protect_profile_role() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.protect_profile_role() TO authenticated, service_role;
+
 CREATE OR REPLACE FUNCTION handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN

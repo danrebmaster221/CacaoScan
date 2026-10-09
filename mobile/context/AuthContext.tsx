@@ -125,14 +125,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function fetchUserRole(userId: string) {
     try {
-      // Primary source: auth user_metadata (always works, no RLS issues)
+      // Names may still come from metadata. Role never does.
       const { data: { user: freshUser } } = await supabase.auth.getUser();
       const meta = freshUser?.user_metadata;
 
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('role, first_name, last_name, farm_location')
+        .eq('id', userId)
+        .single();
+
+      const trustedRole: UserRole =
+        !error && (data?.role === 'admin' || data?.role === 'farmer')
+          ? data.role
+          : 'farmer';
+
       if (meta?.first_name && meta?.last_name && meta?.farm_location) {
-        setUserRole((meta.role as UserRole) ?? 'farmer');
+        setUserRole(trustedRole);
         setUserProfile({
-          role: (meta.role as UserRole) ?? 'farmer',
+          role: trustedRole,
           first_name: meta.first_name,
           last_name: meta.last_name,
           farm_location: meta.farm_location,
@@ -140,20 +151,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // Fallback: profiles table (may fail due to RLS)
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('role, first_name, last_name, farm_location')
-        .eq('id', userId)
-        .single();
-
       if (!error && data?.first_name) {
-        setUserRole((data.role as UserRole) ?? 'farmer');
-        setUserProfile(data as UserProfile);
+        setUserRole(trustedRole);
+        setUserProfile({
+          role: trustedRole,
+          first_name: data.first_name,
+          last_name: data.last_name,
+          farm_location: data.farm_location,
+        });
         return;
       }
 
-      // No profile data found anywhere
       console.warn('No profile data found in metadata or profiles table.');
       setUserRole('farmer');
       setUserProfile(null);
