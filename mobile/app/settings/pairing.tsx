@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -28,13 +28,51 @@ export default function MachinePairingScreen() {
   const theme = Colors.light;
   const meta = user?.user_metadata;
 
-  const [machineId, setMachineId] = useState(meta?.paired_machine || '');
+  const [machineId, setMachineId] = useState('');
   const [masterPin, setMasterPin] = useState('');
   const [farmName, setFarmName] = useState(meta?.farm_location || 'Zamboanga Peninsula, 7000, Philippines');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [isPaired, setIsPaired] = useState(!!meta?.paired_machine);
+  const [isPaired, setIsPaired] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadLinkedMachine() {
+      if (!user?.id) {
+        setIsPaired(false);
+        return;
+      }
+
+      const { data, error: readError } = await supabase
+        .from('profiles')
+        .select('linked_machine_id')
+        .eq('id', user.id)
+        .single();
+
+      if (cancelled) return;
+
+      if (readError) {
+        setIsPaired(false);
+        setError('Failed to load pairing status.');
+        return;
+      }
+
+      const linkedId = data?.linked_machine_id ?? null;
+      if (linkedId) {
+        setMachineId(linkedId);
+        setIsPaired(true);
+      } else {
+        setIsPaired(false);
+      }
+    }
+
+    loadLinkedMachine();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
   const handlePair = async () => {
     if (!machineId.trim()) {
@@ -54,60 +92,76 @@ export default function MachinePairingScreen() {
     setError(null);
     setSuccess(null);
 
+    const normalizedId = machineId.trim();
+
     try {
-      // Prefer secure RPC (does not expose master_pin)
       const { data: ok, error: rpcError } = await supabase.rpc('pair_machine', {
-        p_machine_id: machineId.trim(),
+        p_machine_id: normalizedId,
         p_pin: masterPin,
       });
 
-      if (!rpcError && ok === true) {
-        await supabase.auth.updateUser({
-          data: {
-            ...meta,
-            paired_machine: machineId.trim().toUpperCase(),
-            farm_location: farmName.trim(),
-          },
-        });
-        setIsPaired(true);
-        setSuccess(`Successfully paired with ${machineId.trim().toUpperCase()}!`);
-        setMasterPin('');
+      if (rpcError) {
+        setError('Failed to pair machine.');
+        return;
+      }
+      if (ok !== true) {
+        setError('Failed to pair machine.');
         return;
       }
 
-      // Fallback: metadata-only pairing (dev / before machines seeded)
-      const { error: updateError } = await supabase.auth.updateUser({
+      setIsPaired(true);
+      setMachineId(normalizedId);
+      setSuccess(`Successfully paired with ${normalizedId}!`);
+      setMasterPin('');
+
+      const { error: metaError } = await supabase.auth.updateUser({
         data: {
           ...meta,
-          paired_machine: machineId.trim().toUpperCase(),
+          paired_machine: normalizedId,
           farm_location: farmName.trim(),
         },
       });
-      if (updateError) throw updateError;
-
-      setIsPaired(true);
-      setSuccess(`Paired with ${machineId.trim().toUpperCase()} (local claim).`);
-      setMasterPin('');
-    } catch (err: any) {
-      setError(err.message || 'Failed to pair machine.');
+      if (metaError) {
+        console.warn('Pairing metadata update failed.');
+      }
+    } catch {
+      setError('Failed to pair machine.');
     } finally {
       setLoading(false);
     }
   };
 
   const handleUnpair = async () => {
+    if (!user?.id) {
+      setError('Failed to unpair.');
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
-      const { error: updateError } = await supabase.auth.updateUser({
-        data: { ...meta, paired_machine: null },
-      });
-      if (updateError) throw updateError;
+      const { error: dbError } = await supabase
+        .from('profiles')
+        .update({ linked_machine_id: null })
+        .eq('id', user.id);
+
+      if (dbError) {
+        setError('Failed to unpair.');
+        return;
+      }
+
       setIsPaired(false);
       setMachineId('');
       setSuccess('Machine unpaired successfully.');
-    } catch (err: any) {
-      setError(err.message || 'Failed to unpair.');
+
+      const { error: metaError } = await supabase.auth.updateUser({
+        data: { ...meta, paired_machine: null },
+      });
+      if (metaError) {
+        console.warn('Unpair metadata cleanup failed.');
+      }
+    } catch {
+      setError('Failed to unpair.');
     } finally {
       setLoading(false);
     }
