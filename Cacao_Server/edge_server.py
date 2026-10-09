@@ -4,10 +4,179 @@ CacaoScan Edge AI Server - Multi-Bean Real-Time Bounding Box HUD
 ============================================================================
 """
 
+import atexit
+import ipaddress
+import os
+import socket
+import sys
 import time
 import threading
+
+MACHINE_ID = os.environ.get("CACAO_MACHINE_ID", "").strip()
+if not MACHINE_ID:
+    print("[CONFIG] CACAO_MACHINE_ID is required. Set it before starting the edge server.", file=sys.stderr)
+    raise SystemExit(1)
+
+def normalize_machine_id(machine_id: str) -> str:
+    chars = []
+    prev_hyphen = False
+    for ch in machine_id.strip().lower():
+        if ch in " \t":
+            continue
+        if not (ch.isalnum() or ch == "-"):
+            ch = "-"
+        if ch == "-" and (prev_hyphen or not chars):
+            continue
+        prev_hyphen = ch == "-"
+        chars.append(ch)
+    return "".join(chars).strip("-")
+
+def edge_hostname(machine_id: str) -> str:
+    return f"cacaoscan-{normalize_machine_id(machine_id)}.local"
+
+def _ipv4_reject_reason(ip_text: str):
+    try:
+        addr = ipaddress.ip_address(ip_text)
+    except ValueError:
+        return "not an IPv4 address"
+    if addr.version != 4 or addr.is_unspecified:
+        return "unspecified"
+    if addr.is_loopback:
+        return "loopback"
+    if addr.is_link_local:
+        return "link-local"
+    if not addr.is_private:
+        return "not a private LAN address"
+    return None
+
+def _lan_rank(ip_text: str) -> int:
+    addr = ipaddress.ip_address(ip_text)
+    if addr in ipaddress.ip_network("192.168.0.0/16"):
+        return 0
+    if addr in ipaddress.ip_network("10.0.0.0/8"):
+        return 1
+    if addr in ipaddress.ip_network("172.16.0.0/12"):
+        return 2
+    return 9
+
+def local_ipv4_addresses():
+    found = []
+    seen = set()
+    names = []
+    try:
+        names.append(socket.gethostname())
+    except OSError as exc:
+        print(f"[MDNS] skipped hostname lookup: {exc}")
+    try:
+        fqdn = socket.getfqdn()
+        if fqdn not in names:
+            names.append(fqdn)
+    except OSError as exc:
+        print(f"[MDNS] skipped FQDN lookup: {exc}")
+    for name in names:
+        try:
+            infos = socket.getaddrinfo(name, None, socket.AF_INET)
+        except OSError as exc:
+            print(f"[MDNS] skipped name lookup {name}: {exc}")
+            continue
+        for info in infos:
+            ip_text = info[4][0]
+            if ip_text in seen:
+                continue
+            seen.add(ip_text)
+            found.append(ip_text)
+    return found
+
+def choose_advertise_ip():
+    override = os.environ.get("CACAO_ADVERTISE_IP", "").strip()
+    skipped = []
+    usable = []
+    for ip_text in local_ipv4_addresses():
+        reason = _ipv4_reject_reason(ip_text)
+        if reason:
+            skipped.append((ip_text, reason))
+        else:
+            usable.append(ip_text)
+    usable.sort(key=_lan_rank)
+    for ip_text, reason in skipped:
+        print(f"[MDNS] skipped adapter {ip_text} ({reason})")
+    if override:
+        reason = _ipv4_reject_reason(override)
+        if reason:
+            print(f"[MDNS] CACAO_ADVERTISE_IP={override} rejected ({reason}). Advertisement skipped.")
+            return None
+        print(f"[MDNS] CACAO_ADVERTISE_IP override in use: {override}")
+        return override
+    if not usable:
+        print("[MDNS] No suitable LAN IPv4. Advertisement skipped.")
+        return None
+    print(f"[MDNS] Selected LAN IPv4: {usable[0]}")
+    return usable[0]
+
+_zeroconf = None
+_mdns_service = None
+
+def stop_mdns_advertisement():
+    global _zeroconf, _mdns_service
+    zc = _zeroconf
+    info = _mdns_service
+    _zeroconf = None
+    _mdns_service = None
+    if zc is None:
+        return
+    try:
+        if info is not None:
+            zc.unregister_service(info)
+            print("[MDNS] Advertisement removed")
+    except Exception as exc:
+        print(f"[MDNS] Unregister failed: {exc}")
+    try:
+        zc.close()
+    except Exception as exc:
+        print(f"[MDNS] Zeroconf close failed: {exc}")
+
+def start_mdns_advertisement():
+    global _zeroconf, _mdns_service
+    hostname = edge_hostname(MACHINE_ID)
+    print(f"[MDNS] Derived hostname: {hostname}")
+    ip_text = choose_advertise_ip()
+    if not ip_text:
+        return
+    try:
+        from zeroconf import IPVersion, ServiceInfo, Zeroconf
+    except ImportError:
+        print("[MDNS] zeroconf is not installed. Install it with: python -m pip install zeroconf")
+        return
+    label = hostname[: -len(".local")] if hostname.endswith(".local") else hostname
+    info = ServiceInfo(
+        "_http._tcp.local.",
+        f"{label}._http._tcp.local.",
+        addresses=[socket.inet_aton(ip_text)],
+        port=5000,
+        properties={"machine_id": MACHINE_ID.encode("utf-8")},
+        server=f"{hostname}.",
+    )
+    zc = None
+    try:
+        zc = Zeroconf(ip_version=IPVersion.V4Only)
+        zc.register_service(info)
+    except Exception as exc:
+        print(f"[MDNS] Advertisement failed: {exc}")
+        if zc is not None:
+            try:
+                zc.close()
+            except Exception:
+                pass
+        return
+    _zeroconf = zc
+    _mdns_service = info
+    print(f"[MDNS] Advertising {hostname} at {ip_text}:5000")
+
+atexit.register(stop_mdns_advertisement)
+start_mdns_advertisement()
+
 import cv2
-from flask import Flask, Response
+from flask import Flask, Response, request
 from ultralytics import YOLO
 
 app = Flask(__name__)
@@ -25,9 +194,16 @@ latest_display_frame = None
 frame_lock = threading.Lock()
 current_classification = "EMPTY"
 
+@app.route('/health', methods=['GET'])
+def health():
+    return MACHINE_ID, 200
+
 @app.route('/trigger', methods=['GET'])
 def trigger_ai():
     global current_classification
+    requested_id = (request.args.get("machine_id") or "").strip()
+    if requested_id != MACHINE_ID:
+        return "machine_id mismatch", 403
     print(f"\n[SIGNAL] ESP32 Scan Request -> Returning: {current_classification}")
     return current_classification
 

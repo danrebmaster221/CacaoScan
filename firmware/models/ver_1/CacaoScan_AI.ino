@@ -13,6 +13,7 @@
 #include <WiFiManager.h>
 #include <Preferences.h>
 #include <HTTPClient.h>
+#include <ESPmDNS.h>
 
 // --- PIN ASSIGNMENTS ---
 #define PIN_IR_ENTRY          1   // AI Trigger & Portal Reset
@@ -34,9 +35,165 @@ Preferences prefs;
 WiFiManager wm;
 
 char server_ip[24] = "192.168.1.11";
+char active_edge_ip[24] = "";
 const int SERVER_PORT = 5000;
-unsigned long lastEntryTrigger = 0;
-unsigned long lastExitTrigger  = 0;
+const char MACHINE_ID[] = "CS-0001";
+const unsigned long MDNS_QUERY_MS = 300;
+const unsigned long HEALTH_TIMEOUT_MS = 400;
+const unsigned long TRIGGER_TIMEOUT_MS = 1500;
+const unsigned long RECOVERY_INTERVAL_MS = 5000;
+bool edgeVerified = false;
+bool recoveryNeeded = false;
+bool recoveryRunning = false;
+unsigned long lastRecoveryAttempt = 0;
+
+struct IrLatch {
+    bool armed;
+    bool isLow;
+    unsigned long edgeMs;
+};
+
+IrLatch entryLatch;
+IrLatch exitLatch;
+
+void initIrLatch(IrLatch& ir, int pin) {
+    ir.isLow = digitalRead(pin) == LOW;
+    ir.armed = !ir.isLow;
+    ir.edgeMs = millis();
+}
+
+bool irBlockageReady(IrLatch& ir, int pin, unsigned long now) {
+    bool low = digitalRead(pin) == LOW;
+    if (low != ir.isLow) {
+        ir.isLow = low;
+        ir.edgeMs = now;
+    }
+    if (low && ir.armed && (now - ir.edgeMs >= DEBOUNCE_MS)) {
+        ir.armed = false;
+        return true;
+    }
+    if (!low && !ir.armed && (now - ir.edgeMs >= DEBOUNCE_MS)) {
+        ir.armed = true;
+    }
+    return false;
+}
+
+String normalizeMachineId(const char* raw) {
+    String out;
+    bool prevHyphen = false;
+    for (size_t i = 0; raw[i] != '\0'; i++) {
+        char c = raw[i];
+        if (c == ' ' || c == '\t') continue;
+        if (c >= 'A' && c <= 'Z') c = c - 'A' + 'a';
+        bool ok = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-';
+        if (!ok) c = '-';
+        if (c == '-' && (prevHyphen || out.length() == 0)) continue;
+        prevHyphen = (c == '-');
+        out += c;
+    }
+    while (out.endsWith("-")) out.remove(out.length() - 1);
+    return out;
+}
+
+String edgeHostLabel() {
+    return "cacaoscan-" + normalizeMachineId(MACHINE_ID);
+}
+
+String controllerHostLabel() {
+    return "cacaoscan-controller-" + normalizeMachineId(MACHINE_ID);
+}
+
+void invalidateEdge() {
+    active_edge_ip[0] = '\0';
+    edgeVerified = false;
+}
+
+void rememberVerifiedAddress(const char* ip) {
+    strncpy(active_edge_ip, ip, sizeof(active_edge_ip) - 1);
+    active_edge_ip[sizeof(active_edge_ip) - 1] = '\0';
+    edgeVerified = true;
+    if (strcmp(server_ip, active_edge_ip) == 0) return;
+    prefs.begin("cacaoscan", false);
+    prefs.putString("server_ip", String(active_edge_ip));
+    prefs.end();
+    strncpy(server_ip, active_edge_ip, sizeof(server_ip) - 1);
+    server_ip[sizeof(server_ip) - 1] = '\0';
+}
+
+bool healthMatches(const char* ip) {
+    if (ip == nullptr || ip[0] == '\0') return false;
+    HTTPClient http;
+    String url = "http://" + String(ip) + ":" + String(SERVER_PORT) + "/health";
+    http.begin(url);
+    http.setConnectTimeout(HEALTH_TIMEOUT_MS);
+    http.setTimeout(HEALTH_TIMEOUT_MS);
+    int httpCode = http.GET();
+    String body = "";
+    if (httpCode == HTTP_CODE_OK) {
+        body = http.getString();
+        body.trim();
+    }
+    http.end();
+    return httpCode == HTTP_CODE_OK && body == String(MACHINE_ID);
+}
+
+bool acceptCandidate(const char* ip) {
+    if (!healthMatches(ip)) return false;
+    rememberVerifiedAddress(ip);
+    return true;
+}
+
+bool discoverAndVerify() {
+    String label = edgeHostLabel();
+    IPAddress resolved = MDNS.queryHost(label.c_str(), MDNS_QUERY_MS);
+    if ((uint32_t)resolved != 0) {
+        char candidate[24];
+        resolved.toString().toCharArray(candidate, sizeof(candidate));
+        Serial.printf("[EDGE] mDNS candidate %s -> %s\n", label.c_str(), candidate);
+        if (acceptCandidate(candidate)) {
+            Serial.printf("[EDGE] Verified mDNS edge at %s\n", active_edge_ip);
+            return true;
+        }
+        Serial.println("[EDGE] mDNS candidate failed /health");
+    } else {
+        Serial.println("[EDGE] mDNS resolution failed");
+    }
+
+    Serial.printf("[EDGE] Checking NVS candidate %s\n", server_ip);
+    if (acceptCandidate(server_ip)) {
+        Serial.printf("[EDGE] Verified NVS edge at %s\n", active_edge_ip);
+        return true;
+    }
+
+    invalidateEdge();
+    Serial.println("[EDGE] No verified edge server is available");
+    return false;
+}
+
+void startEdgeDiscovery() {
+    if (WiFi.status() != WL_CONNECTED) return;
+    String controllerName = controllerHostLabel();
+    if (!MDNS.begin(controllerName.c_str())) {
+        Serial.println("[EDGE] mDNS begin failed");
+    } else {
+        Serial.printf("[EDGE] Controller hostname %s.local\n", controllerName.c_str());
+    }
+    if (!discoverAndVerify()) {
+        recoveryNeeded = true;
+        lastRecoveryAttempt = millis();
+    }
+}
+
+void serviceEdgeRecovery() {
+    if (!recoveryNeeded || recoveryRunning) return;
+    if (WiFi.status() != WL_CONNECTED) return;
+    unsigned long now = millis();
+    if (lastRecoveryAttempt != 0 && (now - lastRecoveryAttempt) < RECOVERY_INTERVAL_MS) return;
+    recoveryRunning = true;
+    lastRecoveryAttempt = now;
+    if (discoverAndVerify()) recoveryNeeded = false;
+    recoveryRunning = false;
+}
 
 // Direct 50Hz Pulse Generator (No timers, 100% independent)
 void flickGate(int pin, const char* label) {
@@ -96,13 +253,19 @@ void triggerAIAndSort() {
         Serial.println("[ERROR] WiFi disconnected!");
         return;
     }
+    if (!edgeVerified || active_edge_ip[0] == '\0') {
+        Serial.println("[EDGE] No verified edge server is available");
+        recoveryNeeded = true;
+        return;
+    }
 
     HTTPClient http;
-    String url = "http://" + String(server_ip) + ":" + String(SERVER_PORT) + "/trigger";
+    String url = "http://" + String(active_edge_ip) + ":" + String(SERVER_PORT) + "/trigger?machine_id=" + MACHINE_ID;
 
     unsigned long reqStart = millis();
     http.begin(url);
-    http.setTimeout(1500);
+    http.setConnectTimeout(TRIGGER_TIMEOUT_MS);
+    http.setTimeout(TRIGGER_TIMEOUT_MS);
 
     int httpCode = http.GET();
     unsigned long latency = millis() - reqStart;
@@ -134,6 +297,11 @@ void triggerAIAndSort() {
         }
     } else {
         Serial.printf("[ERROR] HTTP failed. Code: %d\n", httpCode);
+        http.end();
+        invalidateEdge();
+        recoveryNeeded = true;
+        lastRecoveryAttempt = millis();
+        return;
     }
 
     http.end();
@@ -159,26 +327,34 @@ void setup() {
 
     // 2. Connect Wi-Fi
     setupWiFiPortal();
+    startEdgeDiscovery();
 
     Serial.println("\n==================================================");
-    Serial.printf("  CACAOSCAN ARMED & READY: http://%s:%d\n", server_ip, SERVER_PORT);
+    if (edgeVerified) {
+        Serial.printf("  CACAOSCAN ARMED & READY: http://%s:%d\n", active_edge_ip, SERVER_PORT);
+    } else {
+        Serial.println("  CACAOSCAN ONLINE: no verified edge server");
+    }
+    Serial.printf("  MACHINE ID: %s\n", MACHINE_ID);
     Serial.println("  Wave hand or bean across IR Sensor 1 to trigger ");
     Serial.println("==================================================\n");
+
+    initIrLatch(entryLatch, PIN_IR_ENTRY);
+    initIrLatch(exitLatch, PIN_IR_EXIT);
 }
 
 void loop() {
     unsigned long now = millis();
+    serviceEdgeRecovery();
 
     // 1. Entry Sensor (GPIO 1) -> Triggers AI & Sorts Bean
-    if (digitalRead(PIN_IR_ENTRY) == LOW && (now - lastEntryTrigger > DEBOUNCE_MS)) {
-        lastEntryTrigger = now;
+    if (irBlockageReady(entryLatch, PIN_IR_ENTRY, now)) {
         Serial.printf("\n[SENSOR HIT] Entry IR tripped at %lu ms\n", now);
         triggerAIAndSort();
     }
 
     // 2. Exit Sensor (GPIO 2) -> Audit Bean Pass-through
-    if (digitalRead(PIN_IR_EXIT) == LOW && (now - lastExitTrigger > DEBOUNCE_MS)) {
-        lastExitTrigger = now;
+    if (irBlockageReady(exitLatch, PIN_IR_EXIT, now)) {
         Serial.printf("[AUDIT] Exit IR tripped at %lu ms (Passed).\n", now);
     }
 
