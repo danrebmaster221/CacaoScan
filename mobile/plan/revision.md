@@ -1,63 +1,101 @@
-ADDITIONAL REGISTER UI REQUIREMENT — KEYBOARD NEXT FIELD BEHAVIOR
+IMPLEMENT APPROVED AUTH MILESTONE 2B — handle_new_user SEARCH_PATH HARDENING
 
-The user clarified what they mean by "keyboard listener."
+Do not stage.
+Do not commit.
+Do not push.
 
-They mean the Android IME action button in the bottom-right of the keyboard
-(the blue check/arrow/Next button).
+Implement exactly:
 
-When that keyboard action is pressed, focus should move to the next logical
-input instead of simply dismissing the keyboard.
+handle_new_user_search_path_a3ea2312.plan.md
 
-Implement this in register.tsx without changing registration business logic.
+Modify only:
 
-STEP 1:
+- mobile/supabase/schema_v2.sql
+- one new migration:
+  supabase/migrations/20261010170000_handle_new_user_search_path.sql
 
-First Name
--> keyboard action focuses Last Name
+==================================================
+MIGRATION
+==================================================
 
-Last Name
--> keyboard action focuses Farm Location
+Use CREATE OR REPLACE FUNCTION:
 
-Farm Location
--> use the appropriate final action for this step.
-If Farm Location is a normal TextInput, pressing the final action should
-dismiss the keyboard or perform the existing intended interaction safely.
-Do not automatically submit/advance if location selection still requires a
-search result selection.
+public.handle_new_user()
 
-STEP 2:
+Keep:
 
-Email
--> keyboard action focuses Password
+- RETURNS TRIGGER
+- LANGUAGE plpgsql
+- SECURITY DEFINER
 
-Password
--> keyboard action focuses Confirm Password
+Add:
 
-Confirm Password
--> returnKeyType="done"
--> dismiss keyboard
--> do NOT automatically create the account unless that is already intended
+SET search_path = public
 
-Use TextInput refs and onSubmitEditing / the appropriate React Native 0.86
-TextInput APIs.
+Preserve the function body behavior exactly:
 
-Use returnKeyType="next" for fields that have another field after them.
+- insert into public.profiles
+- id = NEW.id
+- first_name from raw_user_meta_data
+- last_name from raw_user_meta_data
+- farm_location from raw_user_meta_data
+- missing farm location defaults to Zamboanga City
+- role hardcoded to farmer
+- linked_machine_id omitted/null
+- RETURN NEW
 
-Use returnKeyType="done" for the final field where appropriate.
+Do not add any new logic.
 
-Set keyboard behavior so pressing Next does not unnecessarily dismiss the
-keyboard between fields.
+==================================================
+TRIGGER
+==================================================
 
-STEP 3 OTP:
+Do NOT drop/recreate the live:
 
-Do not redesign the OTP behavior if it already auto-advances between digits.
-Only inspect it if the keyboard action currently causes an obvious problem.
+on_auth_user_created
 
-KEEP:
+trigger in the migration.
 
-- KeyboardAwareScrollView registration avoidance fix
-- GoogleGlyph fix
-- all Auth Milestone 2 business logic
-- Login keyboard code completely unchanged
+CREATE OR REPLACE must preserve the existing trigger attachment.
 
-This remains register.tsx only.
+schema_v2.sql may keep its existing trigger creation block because it is the
+fresh-install schema.
+
+==================================================
+DO NOT TOUCH
+==================================================
+
+Do not modify:
+
+- protect_profile_role
+- protect_linked_machine
+- pair_machine
+- profile RLS
+- registration UI
+- AuthContext
+- login
+- OTP logic
+- any existing profile rows
+
+Do not add:
+- GRANT
+- REVOKE
+- UPDATE
+- DELETE
+- TRUNCATE
+
+==================================================
+AFTER IMPLEMENTATION REPORT
+==================================================
+
+Return:
+
+1. exact migration filename
+2. exact function change in the migration
+3. exact schema_v2.sql change
+4. confirm function remains SECURITY DEFINER
+5. confirm SET search_path = public
+6. confirm public.profiles remains schema-qualified
+7. confirm no trigger was recreated in the migration
+8. confirm no role/pairing/RLS logic changed
+9. confirm nothing staged/committed/pushed
