@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, View, Dimensions } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import Svg, { Path, Ellipse, G, Defs, LinearGradient as SvgGradient, Stop } from 'react-native-svg';
+import Svg, { Path, Ellipse, G, Defs, LinearGradient as SvgGradient, Stop, Pattern, Rect } from 'react-native-svg';
 import { CacaoSeedConveyorBelt } from '@/components/auth/CacaoSeedConveyorBelt';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
@@ -80,32 +80,36 @@ function PodSegmentBands({ height }: { height: number }) {
   );
 }
 
+const GRAIN_MARKS = [
+  { cx: 3, cy: 5, rx: 0.8, fill: HUSK_LIGHT, opacity: 0.05 },
+  { cx: 14, cy: 2, rx: 1.1, fill: HUSK_DARK, opacity: 0.06 },
+  { cx: 22, cy: 11, rx: 0.8, fill: HUSK_LIGHT, opacity: 0.04 },
+  { cx: 8, cy: 18, rx: 1.1, fill: HUSK_DARK, opacity: 0.07 },
+  { cx: 27, cy: 20, rx: 0.8, fill: HUSK_LIGHT, opacity: 0.05 },
+  { cx: 16, cy: 26, rx: 1.1, fill: HUSK_DARK, opacity: 0.04 },
+  { cx: 4, cy: 28, rx: 0.8, fill: HUSK_LIGHT, opacity: 0.06 },
+  { cx: 30, cy: 8, rx: 1.1, fill: HUSK_DARK, opacity: 0.05 },
+] as const;
+
 function FibrousGrain({ height }: { height: number }) {
-  const specks: React.ReactNode[] = [];
-  const cols = Math.ceil(SCREEN_W / 8);
-  const rows = Math.ceil(height / 8);
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const seed = (r * 13 + c * 29) % 100;
-      if (seed > 55) continue;
-      const x = c * 8 + (seed % 4);
-      const y = r * 8 + (seed % 3);
-      specks.push(
-        <Ellipse
-          key={`f-${r}-${c}`}
-          cx={x}
-          cy={y}
-          rx={0.8 + (seed % 2) * 0.3}
-          ry={0.4}
-          fill={seed % 2 === 0 ? HUSK_LIGHT : HUSK_DARK}
-          opacity={0.04 + (seed % 4) * 0.01}
-        />,
-      );
-    }
-  }
   return (
     <Svg width={SCREEN_W} height={height} style={styles.absoluteFill} pointerEvents="none">
-      {specks}
+      <Defs>
+        <Pattern id="grainPattern" x="0" y="0" width="32" height="32" patternUnits="userSpaceOnUse">
+          {GRAIN_MARKS.map((mark, index) => (
+            <Ellipse
+              key={index}
+              cx={mark.cx}
+              cy={mark.cy}
+              rx={mark.rx}
+              ry={0.4}
+              fill={mark.fill}
+              opacity={mark.opacity}
+            />
+          ))}
+        </Pattern>
+      </Defs>
+      <Rect width={SCREEN_W} height={height} fill="url(#grainPattern)" />
     </Svg>
   );
 }

@@ -1,316 +1,178 @@
-IMPLEMENT AUTH MILESTONE 3 — FORGOT + RESET PASSWORD
+FINAL CLEANUP — LOGIN PERFORMANCE DIAGNOSTICS
 
-Implement the approved:
+The permanent Login performance fix has now PASSED physical Android testing.
 
-forgot_password_reset_c38c35ed.plan(3).md
+Measured results:
+
+BEFORE:
+- Login render → mount/layout ≈ 5.0–5.6 seconds
+- header-background ≈ 3.8–4.2 seconds
+- one keyboard hide could trigger 4–5 callbacks
+
+AFTER:
+- return-to-Login render → layout ≈ 393–418 ms
+- cold Login render → layout ≈ 595 ms
+- header-background ≈ 103–137 ms
+- keyboard listeners now subscribe/unsubscribe with screen focus
+- one keyboard hide produces one HIDE callback
+- physical navigation now feels significantly faster
+
+The optimization is CONFIRMED.
 
 Do not stage.
 Do not commit.
 Do not push.
 
-IMPORTANT IMPLEMENTATION SAFEGUARD:
-
-Do NOT clear @cacaoscan_password_recovery simply because a SIGNED_IN,
-TOKEN_REFRESHED, USER_UPDATED, or another non-terminal auth event occurs
-while passwordRecovery is already true for the same user.
-
-While an active recovery workflow exists:
-
-- matching session stays recovery
-- passwordRecovery stays true
-- recovery marker stays
-- tabs stay blocked
-
-Clear the recovery marker only when appropriate:
-
-1. successful password reset followed by successful sign-out
-2. startup has marker but no session
-3. marker userId does not match session.user.id
-4. marker is malformed
-5. an explicit normal login begins while passwordRecovery is false and the
-   marker is known to be stale
-
-A generic SIGNED_IN event by itself is not sufficient evidence that an
-active recovery marker is stale.
-
 ==================================================
-IMPLEMENT THE APPROVED PLAN
+KEEP PERMANENTLY
 ==================================================
 
-FILES:
+KEEP the optimized FibrousGrain implementation:
 
-- mobile/services/supabase.ts
-- mobile/context/AuthContext.tsx
-- mobile/app/_layout.tsx
-- mobile/app/(auth)/_layout.tsx
-- mobile/app/(auth)/forgot-password.tsx
-- mobile/app/(auth)/reset-password.tsx
-- supabase/config.toml
+- SVG Pattern
+- 32x32 deterministic tile
+- 8 grain ellipses
+- one Rect
+- no Math.random()
+- no thousands-of-node screen grid
 
-==================================================
-SUPABASE CLIENT
-==================================================
+KEEP:
 
-Switch auth flow to:
+- PodHuskRidges
+- PodSegmentBands
+- gradient
+- logo
+- CacaoSeedConveyorBelt
 
-flowType: 'pkce'
+KEEP Login keyboard listeners scoped with useFocusEffect:
 
-Preserve existing session persistence/refresh configuration.
+- subscribe when Login is focused
+- unsubscribe on blur/unmount
 
-==================================================
-FORGOT PASSWORD
-==================================================
+KEEP all existing keyboard callback logic unchanged.
 
-Normalize email:
+KEEP auth stack:
 
-email.trim().toLowerCase()
+animation: 'none'
 
-Do not HTML-encode it.
-
-Keep the enumeration-safe success response.
-
-Use:
-
-cacaoscan://reset-password
-
-as redirectTo.
-
-Use KeyboardAwareScrollView.
-
-Do not modify Login keyboard code.
+The physical result is now faster and the user prefers the immediate
+navigation behavior.
 
 ==================================================
-RECOVERY LINK
+REMOVE ALL TEMPORARY PERFORMANCE DIAGNOSTICS
 ==================================================
 
-Listen for:
+Remove every temporary AUTH_NAV performance log and profiler.
 
-- cold-start initial URL
-- warm-app Linking URL events
+From login.tsx remove:
 
-Only process a code when the URL is specifically the CacaoScan reset route:
+- AUTH_NAV login RENDER_START
+- AUTH_NAV login LAYOUT_EFFECT
+- AUTH_NAV login FIRST_LAYOUT
+- AUTH_NAV login PASSIVE_EFFECT
 
-scheme = cacaoscan
-destination = reset-password
-code = non-empty string
+Remove React.Profiler wrappers/logging for:
 
-Do NOT intercept Google:
+- header-background
+- conveyor
+- form
+- oauth
 
-cacaoscan://(auth)/login
+Remove temporary keyboard diagnostic logs:
 
-Do not exchange arbitrary ?code= URLs.
+- AUTH_NAV keyboard SUBSCRIBE
+- AUTH_NAV keyboard UNSUBSCRIBE
+- AUTH_NAV keyboard HIDE
 
-Do not log:
-- URL
-- code
-- access token
-- refresh token
-- password
-- PKCE verifier
+IMPORTANT:
 
-==================================================
-CODE DEDUPLICATION
-==================================================
+Remove ONLY the logs.
 
-Use an in-memory submitted-code set plus in-flight protection.
-
-The same PKCE recovery code must not be exchanged concurrently/twice.
-
-A repeated link while passwordRecovery is already valid must not destroy or
-clear the current recovery session.
+Keep the actual focus-scoped keyboard subscriptions and cleanup.
 
 ==================================================
-PASSWORD_RECOVERY
+REMOVE UNUSED DIAGNOSTIC CODE
 ==================================================
 
-Handle PASSWORD_RECOVERY before ordinary session logic.
+Remove any imports used only for diagnostics, such as:
 
-On a valid PASSWORD_RECOVERY session:
+- Profiler
+- useLayoutEffect
 
-- accept/store the session
-- passwordRecovery = true
-- persist @cacaoscan_password_recovery:
-  {
-    active: true,
-    userId: session.user.id
-  }
-- clear invalid recovery-link state
-- profile may load
-- tabs must remain inaccessible
+ONLY if no longer used by real functionality.
 
-A URL alone must never create the marker.
+Remove any remaining temporary timing helpers/constants.
 
-==================================================
-COLD-START RESTORE
-==================================================
+Verify there is no:
 
-When restoring Supabase session, read the recovery marker before normal
-profile routing.
+LOGIN_PERF_ISOLATION
+noHusk
+noConveyor
+noLogo
+omitGrain
+performance.now()
+AUTH_NAV
 
-If:
-
-session exists
-AND marker is valid
-AND marker.active === true
-AND marker.userId === session.user.id
-
-then:
-
-passwordRecovery = true
-→ reset-password
-→ never tabs
-
-If:
-
-- no session
-- malformed marker
-- mismatched user
-
-best-effort remove the marker and continue normally.
-
-Storage cleanup failures must not crash startup.
+left anywhere from this investigation.
 
 ==================================================
-ROOT ROUTING
+DO NOT CHANGE
 ==================================================
 
-passwordRecovery outranks:
+Do not alter:
 
-- incomplete
-- ready
-- normal authenticated routing
-
-Protected app routes must require:
-
-profilePhase === 'ready' && !passwordRecovery
-
-When passwordRecovery is true:
-
-route to /(auth)/reset-password
-
-and keep protected tabs/manual override unavailable.
-
-==================================================
-RESET PASSWORD SCREEN
-==================================================
-
-Create:
-
-mobile/app/(auth)/reset-password.tsx
-
-Include:
-
-- New Password
-- Confirm New Password
-- visibility toggles
-- existing validatePassword rules
-- validation feedback
-- disabled/loading update button
-- KeyboardAwareScrollView
-
-Use the existing policy:
-
-- 12+ characters
-- uppercase
-- lowercase
-- number
-- special character
-
-Do not create a second password policy.
-
-Without a real passwordRecovery session:
-
-- do not call updateUser
-- show invalid/expired link state
-- offer Forgot Password
-- offer Login
-
-==================================================
-PASSWORD UPDATE
-==================================================
-
-Only while passwordRecovery === true:
-
-supabase.auth.updateUser({
-  password: newPassword
-})
-
-After success:
-
-- clear new password
-- clear confirm password
-- sign out
-
-After session is successfully gone:
-
-- passwordRecovery = false
-- clear invalid-link state
-- remove recovery marker
-- root routes to Login
-
-If sign-out fails:
-
-- preserve recovery mode
-- preserve marker
-- keep tabs blocked
-
-Do not accidentally leave a recovery-created session inside the app.
-
-==================================================
-SUPABASE CONFIG
-==================================================
-
-Add only:
-
-cacaoscan://reset-password
-
-to the appropriate additional_redirect_urls in:
-
-supabase/config.toml
-
-Also remember the hosted Supabase project must contain the exact same URL in:
-
-Authentication
-→ URL Configuration
-→ Redirect URLs
-
-==================================================
-DO NOT TOUCH
-==================================================
-
-Do not modify:
-
+- optimized grain appearance
+- Login keyboard math
+- Login design
+- conveyor
+- logo
+- lockout
+- pending signup
+- AuthContext
+- PKCE
+- passwordRecovery
+- recovery marker
 - registration
-- pending signup behavior
-- Login keyboard implementation
-- role hardening
-- pairing
-- machine control
-- /events
-- firmware
-- batch logic
+- forgot/reset password logic
+- profilePhase
+- Stack.Protected
+- ESP32 logic
+- dependencies
 
 ==================================================
-RETURN IMPLEMENTATION REPORT
+VERIFY
+==================================================
+
+After cleanup:
+
+1. Search project for:
+   AUTH_NAV
+   LOGIN_PERF_ISOLATION
+
+   Expected:
+   no temporary diagnostic occurrences.
+
+2. Ensure TypeScript/build has no unused diagnostic imports.
+
+3. Confirm auth stack still uses:
+   animation: 'none'
+
+4. Confirm FibrousGrain still uses the optimized SVG Pattern.
+
+5. Confirm Login keyboard listeners still use focus-scoped cleanup.
+
+==================================================
+RETURN
 ==================================================
 
 Report:
 
-1. PKCE client change
-2. forgot-password email normalization
-3. exact recovery URL filter
-4. Google callback isolation
-5. code deduplication
-6. PASSWORD_RECOVERY handling
-7. recovery marker implementation
-8. cold-start recovery restoration
-9. handling of SIGNED_IN/TOKEN_REFRESHED while recovery is active
-10. root routing/tab guard changes
-11. reset-password UI
-12. password policy reuse
-13. updateUser behavior
-14. post-reset sign-out/cleanup
-15. local redirect config
-16. exact files changed
-17. confirm Login keyboard untouched
-18. confirm nothing staged/committed/pushed
+1. diagnostics removed
+2. profiler wrappers removed
+3. unused diagnostic imports removed
+4. optimized grain retained
+5. focus-scoped keyboard listeners retained
+6. auth animation none retained
+7. exact files changed by cleanup
+8. confirm auth behavior untouched
+9. confirm nothing staged/committed/pushed

@@ -415,7 +415,8 @@ export default function LoginScreen() {
     return () => clearPasswordMeasureTimer();
   }, []);
 
-  useEffect(() => {
+  useFocusEffect(
+    useCallback(() => {
     mountedRef.current = true;
     if (Platform.OS !== 'android') {
       return () => {
@@ -458,7 +459,8 @@ export default function LoginScreen() {
       showSub.remove();
       hideSub.remove();
     };
-  }, []);
+  }, []),
+  );
 
   useLayoutEffect(() => {
     if (Platform.OS !== 'android' || keyboardPadding !== 0) return;
@@ -773,7 +775,7 @@ export default function LoginScreen() {
 
   if (Platform.OS === 'ios') {
     return (
-      <KeyboardAvoidingView style={styles.container} behavior="padding">
+      <KeyboardAvoidingView style={styles.container} behavior="padding" onLayout={storeClosedBaseline}>
         {screen}
       </KeyboardAvoidingView>
     );
@@ -783,7 +785,7 @@ export default function LoginScreen() {
     <View
       ref={containerRef}
       style={styles.container}
-      onLayout={() => storeClosedBaseline()}
+      onLayout={storeClosedBaseline}
     >
       {screen}
     </View>

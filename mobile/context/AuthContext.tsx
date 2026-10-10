@@ -827,7 +827,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return { error: null }; // Always say success
       }
 
-      await logAuditEvent(email, 'password_reset');
+      void logAuditEvent(email, 'password_reset').catch(() => {
+        // best-effort only
+      });
       return { error: null };
     } catch {
       return { error: null }; // Always say success
@@ -854,7 +856,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {
       return { error: 'The password was saved, but sign-out did not finish. Stay on this screen and try again.' };
     }
-    await removeRecoveryMarker();
+    void removeRecoveryMarker().catch(() => {
+      // best-effort only; a later launch drops a marker that has no session
+    });
     return { error: null };
   }
 
