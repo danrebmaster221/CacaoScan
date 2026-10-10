@@ -1,225 +1,63 @@
-IMPLEMENT APPROVED FAST EMAIL -> PASSWORD CLEARANCE FIX
+ADDITIONAL REGISTER UI REQUIREMENT — KEYBOARD NEXT FIELD BEHAVIOR
 
-Do not stage.
-Do not commit.
-Do not push.
+The user clarified what they mean by "keyboard listener."
 
-Implement:
+They mean the Android IME action button in the bottom-right of the keyboard
+(the blue check/arrow/Next button).
 
-password_row_still_covered_799a9aa7.plan(2).md
+When that keyboard action is pressed, focus should move to the next logical
+input instead of simply dismissing the keyboard.
 
-Modify ONLY:
+Implement this in register.tsx without changing registration business logic.
 
-mobile/app/(auth)/login.tsx
+STEP 1:
 
-==================================================
-1. FIRST KEYBOARD FRAME
-==================================================
+First Name
+-> keyboard action focuses Last Name
 
-On the first keyboardDidShow of an Android keyboard-open session, store:
+Last Name
+-> keyboard action focuses Farm Location
 
-- firstScreenY
-- firstHeight = event.endCoordinates.height
-- basePadding = baselineBottom - firstScreenY
+Farm Location
+-> use the appropriate final action for this step.
+If Farm Location is a normal TextInput, pressing the final action should
+dismiss the keyboard or perform the existing intended interaction safely.
+Do not automatically submit/advance if location selection still requires a
+search result selection.
 
-This first frame is the Email/opening keyboard reference.
+STEP 2:
 
-Do not replace these first-frame values with controller data.
+Email
+-> keyboard action focuses Password
 
-==================================================
-2. REPEAT keyboardDidShow
-==================================================
+Password
+-> keyboard action focuses Confirm Password
 
-If React Native emits another keyboardDidShow while the SAME keyboard session
-remains open:
+Confirm Password
+-> returnKeyType="done"
+-> dismiss keyboard
+-> do NOT automatically create the account unless that is already intended
 
-newHeight = event.endCoordinates.height
+Use TextInput refs and onSubmitEditing / the appropriate React Native 0.86
+TextInput APIs.
 
-derive from the SAME first frame:
+Use returnKeyType="next" for fields that have another field after them.
 
-growth = newHeight - firstHeight
+Use returnKeyType="done" for the final field where appropriate.
 
-keyboardTop =
-firstScreenY - growth
+Set keyboard behavior so pressing Next does not unnecessarily dismiss the
+keyboard between fields.
 
-basePadding =
-baselineBottom - keyboardTop
+STEP 3 OTP:
 
-Important:
+Do not redesign the OTP behavior if it already auto-advances between digits.
+Only inspect it if the keyboard action currently causes an obvious problem.
 
-Do NOT trust repeat-event screenY directly unless current logic explicitly
-proves it moved correctly.
+KEEP:
 
-Use the first screenY + RN height delta.
+- KeyboardAwareScrollView registration avoidance fix
+- GoogleGlyph fix
+- all Auth Milestone 2 business logic
+- Login keyboard code completely unchanged
 
-Do NOT increment basePadding cumulatively.
-
-Always derive from the original first frame so:
-
-Password taller -> padding increases
-Email shorter again -> padding can decrease
-
-==================================================
-3. FAST EMAIL -> PASSWORD
-==================================================
-
-If Password is focused before the first keyboard-controller onEnd:
-
-- do NOT cancel the keyboard session
-- do NOT invent coordinateGap
-- do NOT combine Email basePadding with a later Password controller height
-
-Remain on the initial basePadding until RN emits the repeat show with the
-changed IME height.
-
-Then update basePadding using the first-frame height delta and remeasure
-Password.
-
-==================================================
-4. CONTROLLER coordinateGap
-==================================================
-
-Keep coordinateGap only when it can be validly established from a settled
-controller height that belongs to the initial keyboard frame before Password
-changes it.
-
-If that valid calibration exists:
-
-- keep using live controller height for later in-place adjustments
-
-If it does not exist:
-
-- do not fabricate it
-- rely on the RN repeat keyboardDidShow height delta path
-
-Clear it on keyboard hide.
-
-==================================================
-5. HEADER MUST YIELD WHILE KEYBOARD IS OPEN
-==================================================
-
-This is critical.
-
-Closed keyboard / paddingBottom === 0:
-
-keep the existing normal header exactly:
-
-- flexGrow: 1
-- flexShrink: 0
-- minHeight: HEADER_MIN
-
-Android keyboard open / paddingBottom > 0:
-
-allow the header to yield:
-
-- flexShrink: 1
-- minHeight: 0
-
-Do not leave HEADER_MIN active while the keyboard is open.
-
-This ensures additional keyboard padding moves the card upward instead of
-clipping the white card from the bottom.
-
-Do not change the normal closed-screen design.
-
-==================================================
-6. PASSWORD EXTRA
-==================================================
-
-Keep passwordExtra separate from basePadding.
-
-Measure Password with measureInWindow.
-
-Because its measured position already contains the current passwordExtra:
-
-basePositionPasswordBottom =
-measuredPasswordBottom + currentPasswordExtra
-
-desiredPasswordExtra =
-Math.max(
-  basePositionPasswordBottom
-  + 16
-  - actualCurrentKeyboardTop,
-  0
-)
-
-paddingBottom =
-basePadding + desiredPasswordExtra
-
-Do not accumulate overlap repeatedly.
-
-==================================================
-7. EMAIL FOCUS
-==================================================
-
-If focus returns to Email:
-
-passwordExtra = 0
-
-Keep the current appropriate basePadding for the current keyboard frame.
-
-If RN reports the keyboard becoming shorter again, recompute basePadding from:
-
-firstScreenY
-firstHeight
-newHeight
-
-Do not leave the taller Password padding active.
-
-==================================================
-8. KEYBOARD HIDE
-==================================================
-
-On hide:
-
-- cancel pending Password measurements
-- passwordExtra = 0
-- basePadding = 0
-- paddingBottom = 0 exactly
-- clear firstScreenY
-- clear firstHeight
-- clear coordinateGap
-- mark keyboard closed
-- restore normal header style automatically
-- refresh closed baseline after zero-padding layout commits
-
-The login screen after dismissal must remain identical to its original layout.
-
-==================================================
-9. DO NOT TOUCH
-==================================================
-
-Do not modify:
-
-- _layout.tsx
-- KeyboardProvider
-- Settings
-- AuthContext
-- app.json
-- iOS behavior
-- logout
-- routing
-
-No:
-- guessed row height
-- ScrollView
-- translateY
-- behavior="height"
-
-==================================================
-RETURN AFTER IMPLEMENTATION
-==================================================
-
-Report:
-
-1. first-frame values stored
-2. repeat keyboardDidShow delta formula
-3. fast Email -> Password behavior
-4. controller calibration behavior
-5. exact keyboard-open header style
-6. exact closed header style
-7. Password extra formula
-8. Email-return behavior
-9. hide/reset behavior
-10. confirm login.tsx only changed
-11. confirm nothing staged/committed/pushed
+This remains register.tsx only.

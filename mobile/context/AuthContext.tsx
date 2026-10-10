@@ -20,6 +20,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { Alert, Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { supabase } from '@/services/supabase';
@@ -67,7 +68,7 @@ interface AuthContextType {
   verifyOTP: (email: string, token: string) => Promise<{ error: string | null }>;
   verifySignupOTP: (email: string, token: string) => Promise<{ error: string | null }>;
   resendOTP: (email: string) => Promise<{ error: string | null }>;
-  signUp: (email: string, password: string, firstName: string, lastName: string, farmLocation: string) => Promise<{ error: string | null }>;
+  signUp: (email: string, password: string, firstName: string, lastName: string, farmLocation: string) => Promise<SignUpResult>;
   signOut: () => Promise<void>;
   requestPasswordReset: (email: string) => Promise<{ error: string | null }>;
   signInWithGoogle: () => Promise<{ error: string | null }>;
@@ -78,6 +79,79 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 // Control #8: Generic error message — never reveal which credential is wrong
 const GENERIC_AUTH_ERROR = 'Invalid username or password';
+const PENDING_SIGNUP_KEY = '@cacaoscan_pending_signup';
+const NEUTRAL_SIGNUP_MESSAGE =
+  'If this email can be registered, a verification code will be sent. If you already have an account, try signing in.';
+
+export type SignUpResult = {
+  error: string | null;
+  needsVerification: boolean;
+  duplicate: boolean;
+};
+
+export type PendingSignup = {
+  email: string;
+  verificationPending: true;
+  nextResendAllowedAt: number;
+};
+
+export async function clearPendingSignup(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(PENDING_SIGNUP_KEY);
+  } catch {
+    // Storage cleanup must not affect authentication.
+  }
+}
+
+export async function readPendingSignup(): Promise<PendingSignup | null> {
+  try {
+    const raw = await AsyncStorage.getItem(PENDING_SIGNUP_KEY);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') {
+      await clearPendingSignup();
+      return null;
+    }
+    const record = parsed as Record<string, unknown>;
+    const email = record.email;
+    const verificationPending = record.verificationPending;
+    const nextResendAllowedAt = record.nextResendAllowedAt;
+    if (
+      typeof email !== 'string' ||
+      email.trim() === '' ||
+      verificationPending !== true ||
+      typeof nextResendAllowedAt !== 'number' ||
+      !Number.isFinite(nextResendAllowedAt)
+    ) {
+      await clearPendingSignup();
+      return null;
+    }
+    return { email, verificationPending: true, nextResendAllowedAt };
+  } catch {
+    await clearPendingSignup();
+    return null;
+  }
+}
+
+export async function writePendingSignup(email: string, nextResendAllowedAt: number): Promise<void> {
+  const record: PendingSignup = {
+    email: email.trim().toLowerCase(),
+    verificationPending: true,
+    nextResendAllowedAt,
+  };
+  await AsyncStorage.setItem(PENDING_SIGNUP_KEY, JSON.stringify(record));
+}
+
+function isDuplicateSignupError(error: { message?: string; code?: string }): boolean {
+  const code = typeof error.code === 'string' ? error.code : '';
+  const message = typeof error.message === 'string' ? error.message.toLowerCase() : '';
+  return (
+    code === 'user_already_exists' ||
+    message.includes('already registered') ||
+    message.includes('already been registered') ||
+    message.includes('user already exists')
+  );
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
@@ -171,6 +245,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         clearAuthMemory();
         return;
       }
+      await clearPendingSignup();
       await refreshProfile();
     });
 
@@ -183,6 +258,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           clearAuthMemory();
           return;
         }
+        await clearPendingSignup();
         await updateLastActive();
         await refreshProfile();
       }
@@ -337,7 +413,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const verifySignupOTP = useCallback(async (email: string, token: string): Promise<{ error: string | null }> => {
     try {
       const { error } = await supabase.auth.verifyOtp({
-        email,
+        email: email.trim().toLowerCase(),
         token,
         type: 'signup',
       });
@@ -359,7 +435,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const { error } = await supabase.auth.resend({
         type: 'signup',
-        email,
+        email: email.trim().toLowerCase(),
       });
 
       if (error) {
@@ -381,25 +457,50 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     firstName: string,
     lastName: string,
     farmLocation: string,
-  ): Promise<{ error: string | null }> => {
+  ): Promise<SignUpResult> => {
+    const normalizedEmail = email.trim().toLowerCase();
     try {
-      const { error } = await supabase.auth.signUp({
-        email,
+      const { data, error } = await supabase.auth.signUp({
+        email: normalizedEmail,
         password,
         options: {
           data: {
-            first_name: firstName,
-            last_name: lastName,
-            farm_location: farmLocation,
+            first_name: firstName.trim(),
+            last_name: lastName.trim(),
+            farm_location: farmLocation.trim(),
           },
         },
       });
 
-      if (error) return { error: error.message };
-      return { error: null };
+      if (error) {
+        if (isDuplicateSignupError(error)) {
+          return { error: NEUTRAL_SIGNUP_MESSAGE, needsVerification: false, duplicate: true };
+        }
+        const message = error.message.toLowerCase();
+        if (message.includes('password')) {
+          return { error: 'Password does not meet security requirements.', needsVerification: false, duplicate: false };
+        }
+        if (message.includes('email') || message.includes('invalid')) {
+          return { error: 'Please enter a valid email address.', needsVerification: false, duplicate: false };
+        }
+        return { error: 'Registration failed. Please try again.', needsVerification: false, duplicate: false };
+      }
 
-    } catch (e) {
-      return { error: 'Registration failed. Please try again.' };
+      if (data.session) {
+        return { error: null, needsVerification: false, duplicate: false };
+      }
+
+      const identities = data.user?.identities;
+      if (data.user && Array.isArray(identities) && identities.length > 0) {
+        return { error: null, needsVerification: true, duplicate: false };
+      }
+      if (data.user && Array.isArray(identities) && identities.length === 0) {
+        return { error: NEUTRAL_SIGNUP_MESSAGE, needsVerification: false, duplicate: true };
+      }
+
+      return { error: 'Registration failed. Please try again.', needsVerification: false, duplicate: false };
+    } catch {
+      return { error: 'Registration failed. Please try again.', needsVerification: false, duplicate: false };
     }
   }, []);
 

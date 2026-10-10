@@ -5,15 +5,12 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
   ActivityIndicator,
-  Image,
 } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useAuth } from '@/context/AuthContext';
+import { readPendingSignup, useAuth, writePendingSignup } from '@/context/AuthContext';
 import { Colors, Typography, Spacing, Radius, Shadows } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import {
@@ -21,12 +18,20 @@ import {
   validatePassword,
   getStrengthInfo,
 } from '@/utils/password-validator';
-import { sanitizeInput, isValidEmail } from '@/utils/security';
+import { isValidEmail } from '@/utils/security';
 import { useLocationSearch, LocationResult } from '@/hooks/use-location-search';
 import { StepIndicator } from '@/components/StepIndicator';
+import { GoogleGlyph } from '@/components/auth/AuthIcons';
+
+const EMPTY_OTP = ['', '', '', '', '', ''];
+const RESEND_COOLDOWN_MS = 30000;
+const PENDING_VERIFICATION_MESSAGE =
+  'A verification is already pending for this email. Continue verification.';
+const NEUTRAL_SIGNUP_MESSAGE =
+  'If this email can be registered, a verification code will be sent. If you already have an account, try signing in.';
 
 export default function RegisterWizardScreen() {
-  const { signUp, verifySignupOTP, resendOTP, signInWithGoogle } = useAuth();
+  const { signUp, verifySignupOTP, resendOTP, signInWithGoogle, session, profilePhase } = useAuth();
   const router = useRouter();
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
@@ -35,17 +40,26 @@ export default function RegisterWizardScreen() {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [otpArray, setOtpArray] = useState<string[]>(['', '', '', '', '', '']);
+  const [otpArray, setOtpArray] = useState<string[]>(EMPTY_OTP);
   const otpRefs = useRef<(TextInput | null)[]>([]);
-  const [resendCountdown, setResendCountdown] = useState(0);
+  const lastNameRef = useRef<TextInput>(null);
+  const farmLocationRef = useRef<TextInput>(null);
+  const passwordRef = useRef<TextInput>(null);
+  const confirmPasswordRef = useRef<TextInput>(null);
+  const [nextResendAllowedAt, setNextResendAllowedAt] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
+  const resendLockRef = useRef(false);
+  const restoredPendingRef = useRef(false);
 
   useEffect(() => {
-    let interval: ReturnType<typeof setInterval>;
-    if (resendCountdown > 0) {
-      interval = setInterval(() => setResendCountdown((c) => c - 1), 1000);
-    }
+    if (nextResendAllowedAt <= Date.now()) return;
+    const interval = setInterval(() => {
+      const current = Date.now();
+      setNow(current);
+      if (current >= nextResendAllowedAt) clearInterval(interval);
+    }, 1000);
     return () => clearInterval(interval);
-  }, [resendCountdown]);
+  }, [nextResendAllowedAt]);
 
   // Step 1: Personal Info
   const [firstName, setFirstName] = useState('');
@@ -62,6 +76,27 @@ export default function RegisterWizardScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  useEffect(() => {
+    if (restoredPendingRef.current) return;
+    if (profilePhase === 'restoring' || profilePhase === 'loadingProfile') return;
+    restoredPendingRef.current = true;
+    if (session) return;
+    let cancelled = false;
+    readPendingSignup().then((pending) => {
+      if (cancelled || !pending) return;
+      setEmail(pending.email);
+      setPassword('');
+      setConfirmPassword('');
+      setOtpArray(EMPTY_OTP);
+      setNextResendAllowedAt(pending.nextResendAllowedAt);
+      setNow(Date.now());
+      setStep(3);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [profilePhase, session]);
 
   // Password Validation
   const passwordValidation = useMemo(() => validatePassword(password), [password]);
@@ -87,9 +122,9 @@ export default function RegisterWizardScreen() {
 
   const handleNextStep = () => {
     setError(null);
-    const cleanFirst = sanitizeInput(firstName).trim();
-    const cleanLast = sanitizeInput(lastName).trim();
-    const cleanLocation = sanitizeInput(farmLocation).trim();
+    const cleanFirst = firstName.trim();
+    const cleanLast = lastName.trim();
+    const cleanLocation = farmLocation.trim();
 
     if (!cleanFirst || !cleanLast || !cleanLocation) {
       setError('Please complete all fields before continuing.');
@@ -100,17 +135,17 @@ export default function RegisterWizardScreen() {
 
   const handleRegister = async () => {
     setError(null);
-    const cleanFirst = sanitizeInput(firstName).trim();
-    const cleanLast = sanitizeInput(lastName).trim();
-    const cleanEmail = email.trim();
-    const cleanLocation = sanitizeInput(farmLocation).trim();
+    const cleanFirst = firstName.trim();
+    const cleanLast = lastName.trim();
+    const cleanLocation = farmLocation.trim();
+    const normalizedEmail = email.trim().toLowerCase();
 
-    if (!cleanEmail || !password.trim()) {
+    if (!normalizedEmail || !password.trim()) {
       setError('Please complete all credential fields.');
       return;
     }
 
-    if (!isValidEmail(cleanEmail)) {
+    if (!isValidEmail(normalizedEmail)) {
       setError('Please enter a valid email address.');
       return;
     }
@@ -125,15 +160,53 @@ export default function RegisterWizardScreen() {
       return;
     }
 
+    setEmail(normalizedEmail);
+    setFirstName(cleanFirst);
+    setLastName(cleanLast);
+    setFarmLocation(cleanLocation);
     setLoading(true);
-    const { error: signUpError } = await signUp(cleanEmail, password, cleanFirst, cleanLast, cleanLocation);
+    const result = await signUp(normalizedEmail, password, cleanFirst, cleanLast, cleanLocation);
     setLoading(false);
 
-    if (signUpError) {
-      setError(signUpError);
-    } else {
+    if (result.needsVerification) {
+      const nextAllowed = Date.now() + RESEND_COOLDOWN_MS;
+      try {
+        await writePendingSignup(normalizedEmail, nextAllowed);
+      } catch {
+        // The code was still sent. Resume can be retried from this screen.
+      }
+      setPassword('');
+      setConfirmPassword('');
+      setOtpArray(EMPTY_OTP);
+      setNextResendAllowedAt(nextAllowed);
+      setNow(Date.now());
       setStep(3);
+      return;
     }
+
+    if (result.duplicate) {
+      const pending = await readPendingSignup();
+      if (pending && pending.email === normalizedEmail) {
+        setPassword('');
+        setConfirmPassword('');
+        setOtpArray(EMPTY_OTP);
+        setNextResendAllowedAt(pending.nextResendAllowedAt);
+        setNow(Date.now());
+        setError(PENDING_VERIFICATION_MESSAGE);
+        setStep(3);
+        return;
+      }
+      setError(result.error ?? NEUTRAL_SIGNUP_MESSAGE);
+      return;
+    }
+
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+
+    setPassword('');
+    setConfirmPassword('');
   };
 
   const handleOtpChange = (text: string, index: number) => {
@@ -154,12 +227,27 @@ export default function RegisterWizardScreen() {
   };
 
   const handleResend = async () => {
+    if (resendLockRef.current || Date.now() < nextResendAllowedAt) return;
+    resendLockRef.current = true;
     setError(null);
-    setResendCountdown(30);
-    const { error: resendErr } = await resendOTP(email.trim());
-    if (resendErr) {
-      setError(resendErr);
-      setResendCountdown(0);
+    setLoading(true);
+    try {
+      const { error: resendErr } = await resendOTP(email);
+      if (resendErr) {
+        setError(resendErr);
+        return;
+      }
+      const nextAllowed = Date.now() + RESEND_COOLDOWN_MS;
+      setNextResendAllowedAt(nextAllowed);
+      setNow(Date.now());
+      try {
+        await writePendingSignup(email, nextAllowed);
+      } catch {
+        // The resend itself succeeded. The timestamp retries on the next resend.
+      }
+    } finally {
+      resendLockRef.current = false;
+      setLoading(false);
     }
   };
 
@@ -172,31 +260,44 @@ export default function RegisterWizardScreen() {
     }
 
     setLoading(true);
-    const { error: verifyError } = await verifySignupOTP(email.trim(), otpValue);
+    const { error: verifyError } = await verifySignupOTP(email, otpValue);
     setLoading(false);
 
     if (verifyError) {
       setError(verifyError);
-    } else {
-      // Success! Auto-auth will pick up the session, but forcefully route just in case
-      router.replace('/(tabs)' as any);
+      return;
     }
+    setOtpArray(EMPTY_OTP);
   };
 
+  const returnToLogin = () => {
+    setOtpArray(EMPTY_OTP);
+    router.replace('/(auth)/login' as any);
+  };
+
+  const useDifferentEmail = () => {
+    setError(null);
+    setOtpArray(EMPTY_OTP);
+    setPassword('');
+    setConfirmPassword('');
+    setStep(2);
+  };
+
+  const resendRemainingMs = Math.max(nextResendAllowedAt - now, 0);
+  const resendSeconds = Math.ceil(resendRemainingMs / 1000);
+
   return (
-    <KeyboardAvoidingView
+    <KeyboardAwareScrollView
       style={[styles.container, { backgroundColor: theme.background }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      contentContainerStyle={styles.scrollContent}
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+      bottomOffset={64}
     >
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
         {/* Header */}
         <View style={styles.headerSection}>
           <TouchableOpacity 
-            onPress={() => router.replace('/(auth)/login' as any)} 
+            onPress={returnToLogin}
             style={styles.backButton}
           >
             <Text style={[styles.backText, { color: theme.accent }]}>← Back to Login</Text>
@@ -242,6 +343,9 @@ export default function RegisterWizardScreen() {
                 value={firstName}
                 onChangeText={setFirstName}
                 autoComplete="name-given"
+                returnKeyType="next"
+                blurOnSubmit={false}
+                onSubmitEditing={() => lastNameRef.current?.focus()}
               />
             </View>
 
@@ -254,6 +358,10 @@ export default function RegisterWizardScreen() {
                 value={lastName}
                 onChangeText={setLastName}
                 autoComplete="name-family"
+                ref={lastNameRef}
+                returnKeyType="next"
+                blurOnSubmit={false}
+                onSubmitEditing={() => farmLocationRef.current?.focus()}
               />
             </View>
 
@@ -265,6 +373,8 @@ export default function RegisterWizardScreen() {
                 placeholderTextColor={theme.disabled}
                 value={farmLocation}
                 onChangeText={handleLocationChange}
+                ref={farmLocationRef}
+                returnKeyType="done"
               />
               {/* Location Autocomplete Results */}
               {showLocationResults && (results.length > 0 || locationLoading) && (
@@ -310,6 +420,9 @@ export default function RegisterWizardScreen() {
                 autoCapitalize="none"
                 keyboardType="email-address"
                 autoComplete="email"
+                returnKeyType="next"
+                blurOnSubmit={false}
+                onSubmitEditing={() => passwordRef.current?.focus()}
               />
             </View>
 
@@ -324,6 +437,10 @@ export default function RegisterWizardScreen() {
                   value={password}
                   onChangeText={setPassword}
                   secureTextEntry={!showPassword}
+                  ref={passwordRef}
+                  returnKeyType="next"
+                  blurOnSubmit={false}
+                  onSubmitEditing={() => confirmPasswordRef.current?.focus()}
                 />
                 <TouchableOpacity
                   style={{ position: 'absolute', right: 16, height: 52, justifyContent: 'center' }}
@@ -377,6 +494,8 @@ export default function RegisterWizardScreen() {
                   value={confirmPassword}
                   onChangeText={setConfirmPassword}
                   secureTextEntry={!showConfirmPassword}
+                  ref={confirmPasswordRef}
+                  returnKeyType="done"
                 />
                 <TouchableOpacity
                   style={{ position: 'absolute', right: 16, height: 52, justifyContent: 'center' }}
@@ -479,19 +598,28 @@ export default function RegisterWizardScreen() {
             <TouchableOpacity
               style={[styles.actionButton, { backgroundColor: 'transparent', width: '100%', borderColor: theme.border, borderWidth: 1, marginTop: Spacing.md, height: 52 }]}
               onPress={handleResend}
-              disabled={resendCountdown > 0 || loading}
+              disabled={resendSeconds > 0 || loading}
             >
-              <Text style={{ color: resendCountdown > 0 ? theme.textSecondary : theme.text, fontFamily: Typography.fontFamily.medium }}>
-                {resendCountdown > 0 ? `Resend Code (${resendCountdown}s)` : 'Resend Code'}
+              <Text style={{ color: resendSeconds > 0 ? theme.textSecondary : theme.text, fontFamily: Typography.fontFamily.medium }}>
+                {resendSeconds > 0 ? `Resend Code (${resendSeconds}s)` : 'Resend Code'}
               </Text>
             </TouchableOpacity>
 
-            <TouchableOpacity 
+            <TouchableOpacity
               style={{ marginTop: Spacing.xl }}
-              onPress={() => router.replace('/(auth)/login' as any)}
+              onPress={returnToLogin}
             >
               <Text style={{ color: theme.textSecondary, fontFamily: Typography.fontFamily.medium }}>
-                Cancel and return to Login
+                Return to Login
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={{ marginTop: Spacing.md }}
+              onPress={useDifferentEmail}
+            >
+              <Text style={{ color: theme.textSecondary, fontFamily: Typography.fontFamily.medium }}>
+                Use a different email
               </Text>
             </TouchableOpacity>
           </View>
@@ -513,16 +641,11 @@ export default function RegisterWizardScreen() {
             onPress={signInWithGoogle}
             activeOpacity={0.8}
           >
-            <Image 
-              source={{ uri: 'https://img.icons8.com/color/48/000000/google-logo.png' }}
-              style={{ width: 26, height: 26 }}
-              resizeMode="contain"
-            />
+            <GoogleGlyph size={26} />
           </TouchableOpacity>
         </View>
         )}
-      </ScrollView>
-    </KeyboardAvoidingView>
+    </KeyboardAwareScrollView>
   );
 }
 

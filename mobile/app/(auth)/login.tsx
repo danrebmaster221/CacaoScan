@@ -11,7 +11,7 @@
  * - #18: Brute force lockout timer display
  */
 
-import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -29,7 +29,7 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import Animated, {
   FadeInDown,
   FadeIn,
@@ -43,7 +43,7 @@ import Animated, {
   runOnJS,
 } from 'react-native-reanimated';
 import { useGenericKeyboardHandler } from 'react-native-keyboard-controller';
-import { useAuth } from '@/context/AuthContext';
+import { readPendingSignup, useAuth } from '@/context/AuthContext';
 import { Typography } from '@/constants/theme';
 import {
   getLockoutInfo,
@@ -191,6 +191,19 @@ export default function LoginScreen() {
   const [isLocked, setIsLocked] = useState(false);
   const [lockoutSeconds, setLockoutSeconds] = useState(0);
   const [attempts, setAttempts] = useState(0);
+  const [pendingVerification, setPendingVerification] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      readPendingSignup().then((pending) => {
+        if (active) setPendingVerification(pending != null);
+      });
+      return () => {
+        active = false;
+      };
+    }, []),
+  );
 
   const ctaScale = useSharedValue(1);
   const errorShake = useSharedValue(0);
@@ -731,6 +744,16 @@ export default function LoginScreen() {
                   <Text style={styles.googleText}>Continue with Google</Text>
                 </TouchableOpacity>
 
+                {pendingVerification && (
+                  <TouchableOpacity
+                    onPress={() => router.push('/(auth)/register' as any)}
+                    activeOpacity={0.5}
+                    style={styles.continueVerification}
+                  >
+                    <Text style={styles.footerLink}>Continue email verification</Text>
+                  </TouchableOpacity>
+                )}
+
                 <View style={styles.footer}>
                   <Text style={styles.footerText}>Don&apos;t have an account? </Text>
                   <TouchableOpacity
@@ -1045,6 +1068,10 @@ const styles = StyleSheet.create({
     color: UI.text,
   },
 
+  continueVerification: {
+    alignItems: 'center',
+    marginTop: 16,
+  },
   footer: {
     flexDirection: 'row',
     justifyContent: 'center',
