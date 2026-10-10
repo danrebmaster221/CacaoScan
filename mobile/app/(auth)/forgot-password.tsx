@@ -20,15 +20,14 @@ import {
   SafeAreaView,
   ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
-  Platform,
 } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { Colors, Typography, Spacing, Radius } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { isValidEmail, sanitizeInput } from '@/utils/security';
+import { isValidEmail } from '@/utils/security';
 import { LockIcon, MailIcon, ShieldLockIcon } from '@/components/auth/AuthIcons';
 
 export default function ForgotPasswordScreen() {
@@ -42,7 +41,7 @@ export default function ForgotPasswordScreen() {
   const [sent, setSent] = useState(false);
 
   async function handleReset() {
-    const cleanEmail = sanitizeInput(email).trim();
+    const cleanEmail = email.trim().toLowerCase();
 
     if (!cleanEmail) {
       Alert.alert('Required', 'Please enter your email address.');
@@ -54,6 +53,7 @@ export default function ForgotPasswordScreen() {
       return;
     }
 
+    setEmail(cleanEmail);
     setLoading(true);
     await requestPasswordReset(cleanEmail);
     setLoading(false);
@@ -62,9 +62,11 @@ export default function ForgotPasswordScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      <KeyboardAvoidingView
+      <KeyboardAwareScrollView
         style={styles.keyboardView}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        contentContainerStyle={styles.keyboardContent}
+        keyboardShouldPersistTaps="handled"
+        bottomOffset={64}
       >
         <View style={styles.content}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
@@ -158,7 +160,7 @@ export default function ForgotPasswordScreen() {
             </Text>
           </View>
         </View>
-      </KeyboardAvoidingView>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }
@@ -166,6 +168,7 @@ export default function ForgotPasswordScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   keyboardView: { flex: 1 },
+  keyboardContent: { flexGrow: 1 },
   content: { flex: 1, paddingHorizontal: Spacing.lg, paddingTop: Spacing.lg },
   backButton: {
     flexDirection: 'row',

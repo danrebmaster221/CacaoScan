@@ -64,6 +64,11 @@ interface AuthContextType {
   pendingMFA: boolean;
   /** Email of the user pending MFA verification */
   pendingMFAEmail: string | null;
+  /** True only for a real password-recovery session. */
+  passwordRecovery: boolean;
+  /** True while a reset-password code is being exchanged. */
+  recoveryExchangePending: boolean;
+  updateRecoveredPassword: (password: string) => Promise<{ error: string | null }>;
   signIn: (email: string, password: string) => Promise<{ error: string | null; requiresMFA?: boolean }>;
   verifyOTP: (email: string, token: string) => Promise<{ error: string | null }>;
   verifySignupOTP: (email: string, token: string) => Promise<{ error: string | null }>;
@@ -80,6 +85,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 // Control #8: Generic error message — never reveal which credential is wrong
 const GENERIC_AUTH_ERROR = 'Invalid username or password';
 const PENDING_SIGNUP_KEY = '@cacaoscan_pending_signup';
+const PASSWORD_RECOVERY_KEY = '@cacaoscan_password_recovery';
 const NEUTRAL_SIGNUP_MESSAGE =
   'If this email can be registered, a verification code will be sent. If you already have an account, try signing in.';
 
@@ -142,6 +148,60 @@ export async function writePendingSignup(email: string, nextResendAllowedAt: num
   await AsyncStorage.setItem(PENDING_SIGNUP_KEY, JSON.stringify(record));
 }
 
+type RecoveryMarker = { active: true; userId: string };
+
+async function readRecoveryMarker(): Promise<RecoveryMarker | 'malformed' | null> {
+  try {
+    const raw = await AsyncStorage.getItem(PASSWORD_RECOVERY_KEY);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return 'malformed';
+    const record = parsed as Record<string, unknown>;
+    if (record.active === true && typeof record.userId === 'string' && record.userId.length > 0) {
+      return { active: true, userId: record.userId };
+    }
+    return 'malformed';
+  } catch {
+    return 'malformed';
+  }
+}
+
+async function writeRecoveryMarker(userId: string): Promise<void> {
+  try {
+    const marker: RecoveryMarker = { active: true, userId };
+    await AsyncStorage.setItem(PASSWORD_RECOVERY_KEY, JSON.stringify(marker));
+  } catch {
+    // The in-memory flag still keeps this process on the reset screen.
+  }
+}
+
+async function removeRecoveryMarker(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(PASSWORD_RECOVERY_KEY);
+  } catch {
+    // A later launch removes a marker that has no matching session.
+  }
+}
+
+function resetCodeFromUrl(url: string): { kind: 'ignore' } | { kind: 'invalid' } | { kind: 'code'; code: string } {
+  let parsed: ReturnType<typeof Linking.parse>;
+  try {
+    parsed = Linking.parse(url);
+  } catch {
+    return { kind: 'ignore' };
+  }
+  const host = parsed.hostname ?? '';
+  const path = parsed.path ?? '';
+  const isReset =
+    parsed.scheme === 'cacaoscan' &&
+    (host === 'reset-password' || path === 'reset-password' || path === '/reset-password');
+  if (!isReset) return { kind: 'ignore' };
+  const rawCode = parsed.queryParams?.code;
+  const code = Array.isArray(rawCode) ? rawCode[0] : rawCode;
+  if (typeof code !== 'string' || code.trim() === '') return { kind: 'invalid' };
+  return { kind: 'code', code };
+}
+
 function isDuplicateSignupError(error: { message?: string; code?: string }): boolean {
   const code = typeof error.code === 'string' ? error.code : '';
   const message = typeof error.message === 'string' ? error.message.toLowerCase() : '';
@@ -163,6 +223,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isLoading = profilePhase === 'restoring' || profilePhase === 'loadingProfile';
   const [pendingMFA, setPendingMFA] = useState(false);
   const [pendingMFAEmail, setPendingMFAEmail] = useState<string | null>(null);
+  const [passwordRecovery, setPasswordRecovery] = useState(false);
+  const [recoveryExchangePending, setRecoveryExchangePending] = useState(false);
+  const passwordRecoveryRef = useRef(false);
+  const recoveryUserIdRef = useRef<string | null>(null);
+  const submittedRecoveryCodesRef = useRef(new Set<string>());
+  const recoveryExchangeLockRef = useRef<string | null>(null);
+
+  const markPasswordRecovery = (userId: string) => {
+    passwordRecoveryRef.current = true;
+    recoveryUserIdRef.current = userId;
+    setPasswordRecovery(true);
+  };
+
+  const clearPasswordRecoveryMemory = () => {
+    passwordRecoveryRef.current = false;
+    recoveryUserIdRef.current = null;
+    setPasswordRecovery(false);
+  };
 
   const clearAuthMemory = useCallback(() => {
     profileSeq.current += 1;
@@ -172,8 +250,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUserRole('farmer');
     setPendingMFA(false);
     setPendingMFAEmail(null);
+    passwordRecoveryRef.current = false;
+    recoveryUserIdRef.current = null;
+    setPasswordRecovery(false);
     setProfilePhase('signedOut');
   }, []);
+
+  const alignRecoveryWithSession = async (userId: string) => {
+    const marker = await readRecoveryMarker();
+    if (marker === 'malformed') {
+      await removeRecoveryMarker();
+      return;
+    }
+    if (marker && marker.userId !== userId) {
+      await removeRecoveryMarker();
+      if (passwordRecoveryRef.current && recoveryUserIdRef.current !== userId) {
+        clearPasswordRecoveryMemory();
+      }
+      return;
+    }
+    if (marker && marker.active && marker.userId === userId) {
+      markPasswordRecovery(userId);
+    }
+  };
+
+  const forgetStaleRecoveryMarker = async () => {
+    if (passwordRecoveryRef.current) return;
+    await removeRecoveryMarker();
+  };
 
   const refreshProfile = useCallback(async (): Promise<ProfilePhase> => {
     const {
@@ -239,12 +343,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     supabase.auth.getSession().then(async ({ data: { session: restored } }) => {
       if (cancelled) return;
-      setSession(restored);
-      setUser(restored?.user ?? null);
       if (!restored?.user) {
+        if (passwordRecoveryRef.current) return;
+        await removeRecoveryMarker();
         clearAuthMemory();
         return;
       }
+      setSession(restored);
+      setUser(restored.user);
+      await alignRecoveryWithSession(restored.user.id);
       await clearPendingSignup();
       await refreshProfile();
     });
@@ -252,11 +359,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, nextSession) => {
         if (cancelled) return;
+        if (event === 'PASSWORD_RECOVERY' && nextSession?.user) {
+          setSession(nextSession);
+          setUser(nextSession.user);
+          markPasswordRecovery(nextSession.user.id);
+          await writeRecoveryMarker(nextSession.user.id);
+          await clearPendingSignup();
+          await refreshProfile();
+          return;
+        }
         setSession(nextSession);
         setUser(nextSession?.user ?? null);
         if (event === 'SIGNED_OUT' || !nextSession?.user) {
+          if (!nextSession?.user) await removeRecoveryMarker();
           clearAuthMemory();
           return;
+        }
+        if (
+          passwordRecoveryRef.current &&
+          recoveryUserIdRef.current === nextSession.user.id
+        ) {
+          await refreshProfile();
+          return;
+        }
+        if (event === 'INITIAL_SESSION') {
+          await alignRecoveryWithSession(nextSession.user.id);
         }
         await clearPendingSignup();
         await updateLastActive();
@@ -269,6 +396,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       subscription.unsubscribe();
     };
   }, [clearAuthMemory, refreshProfile]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const acceptRecoveryUrl = async (url: string | null) => {
+      if (!url || cancelled) return;
+      const parsed = resetCodeFromUrl(url);
+      if (parsed.kind === 'ignore') return;
+      if (parsed.kind === 'invalid') return;
+      const code = parsed.code;
+      if (submittedRecoveryCodesRef.current.has(code) || recoveryExchangeLockRef.current === code) {
+        return;
+      }
+      submittedRecoveryCodesRef.current.add(code);
+      recoveryExchangeLockRef.current = code;
+      setRecoveryExchangePending(true);
+      try {
+        await supabase.auth.exchangeCodeForSession(code);
+      } catch {
+        // A failed exchange leaves passwordRecovery unchanged.
+      } finally {
+        if (recoveryExchangeLockRef.current === code) recoveryExchangeLockRef.current = null;
+        if (!cancelled) setRecoveryExchangePending(false);
+      }
+    };
+
+    Linking.getInitialURL().then((url) => {
+      void acceptRecoveryUrl(url);
+    });
+    const subscription = Linking.addEventListener('url', ({ url }) => {
+      void acceptRecoveryUrl(url);
+    });
+    return () => {
+      cancelled = true;
+      subscription.remove();
+    };
+  }, []);
 
   // Control #9: Session timeout listener
   useEffect(() => {
@@ -363,6 +527,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         );
       }
 
+      if (!passwordRecoveryRef.current) await removeRecoveryMarker();
       return { error: null, requiresMFA: false };
     } catch (e) {
       return { error: GENERIC_AUTH_ERROR };
@@ -562,11 +727,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               console.log('[OAuth] Exchanging code for session...');
               const { error: sessionError } = await supabase.auth.exchangeCodeForSession(String(params.queryParams.code));
               if (sessionError) return { error: sessionError.message };
+              if (!passwordRecoveryRef.current) await removeRecoveryMarker();
             } else if (result.url.includes('#access_token')) {
               // Implicit grant fallback
               const hashMatch = result.url.match(/#access_token=([^&]+).*&refresh_token=([^&]+)/);
               if (hashMatch) {
                 await supabase.auth.setSession({ access_token: hashMatch[1], refresh_token: hashMatch[2] });
+                if (!passwordRecoveryRef.current) await removeRecoveryMarker();
               }
             }
           } else if (result.type === 'cancel' || result.type === 'dismiss') {
@@ -651,7 +818,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
    */
   const requestPasswordReset = useCallback(async (email: string): Promise<{ error: string | null }> => {
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
         redirectTo: 'cacaoscan://reset-password',
       });
 
@@ -666,6 +833,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { error: null }; // Always say success
     }
   }, []);
+
+  async function updateRecoveredPassword(password: string): Promise<{ error: string | null }> {
+    if (!passwordRecoveryRef.current) {
+      return { error: 'This reset link is invalid or has expired.' };
+    }
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) {
+      const message = error.message.toLowerCase();
+      if (message.includes('same') || message.includes('different from')) {
+        return { error: 'Choose a different password.' };
+      }
+      if (message.includes('password')) {
+        return { error: 'Password does not meet security requirements.' };
+      }
+      return { error: 'Could not update the password. Please try again.' };
+    }
+    try {
+      await signOut();
+    } catch {
+      return { error: 'The password was saved, but sign-out did not finish. Stay on this screen and try again.' };
+    }
+    await removeRecoveryMarker();
+    return { error: null };
+  }
 
   async function signOut() {
     const { error } = await supabase.auth.signOut({ scope: 'local' });
@@ -687,6 +878,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         refreshProfile,
         pendingMFA,
         pendingMFAEmail,
+        passwordRecovery,
+        recoveryExchangePending,
+        updateRecoveredPassword,
         signIn,
         verifyOTP,
         verifySignupOTP,

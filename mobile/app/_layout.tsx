@@ -54,7 +54,7 @@ const CacaoDarkTheme = {
 };
 
 function RootLayoutNav({ fontsLoaded }: { fontsLoaded: boolean }) {
-  const { profilePhase, pendingMFA, refreshProfile } = useAuth();
+  const { profilePhase, pendingMFA, passwordRecovery, refreshProfile } = useAuth();
   const segments = useSegments();
   const router = useRouter();
   const [retrying, setRetrying] = useState(false);
@@ -63,10 +63,15 @@ function RootLayoutNav({ fontsLoaded }: { fontsLoaded: boolean }) {
   const inAuthGroup = segments[0] === ('(auth)' as string);
   const isCompleteProfileRoute = inAuthGroup && segments[1] === 'complete-profile';
   const onLogin = inAuthGroup && segments[1] === 'login';
+  const onResetPassword = inAuthGroup && segments[1] === 'reset-password';
   const onTabs = segments[0] === ('(tabs)' as string);
   const showSignOutCover = profilePhase === 'signedOut' && !onLogin && (!inAuthGroup || isCompleteProfileRoute);
 
   useEffect(() => {
+    if (passwordRecovery) {
+      if (!onResetPassword) router.replace('/(auth)/reset-password' as any);
+      return;
+    }
     if (loading) return;
 
     if (profilePhase === 'signedOut') {
@@ -82,9 +87,10 @@ function RootLayoutNav({ fontsLoaded }: { fontsLoaded: boolean }) {
         router.replace('/(tabs)' as any);
       }
     }
-  }, [profilePhase, loading, inAuthGroup, isCompleteProfileRoute, pendingMFA, router]);
+  }, [passwordRecovery, onResetPassword, profilePhase, loading, inAuthGroup, isCompleteProfileRoute, pendingMFA, router]);
 
   const routeSettled =
+    (passwordRecovery && onResetPassword) ||
     (profilePhase === 'signedOut' && inAuthGroup && !isCompleteProfileRoute) ||
     (profilePhase === 'incomplete' && isCompleteProfileRoute) ||
     (profilePhase === 'ready' && onTabs) ||
@@ -109,7 +115,7 @@ function RootLayoutNav({ fontsLoaded }: { fontsLoaded: boolean }) {
     <View style={styles.navRoot}>
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(auth)" />
-        <Stack.Protected guard={profilePhase === 'ready'}>
+        <Stack.Protected guard={profilePhase === 'ready' && !passwordRecovery}>
           <Stack.Screen name="(tabs)" />
           <Stack.Screen
             name="manual-override"
