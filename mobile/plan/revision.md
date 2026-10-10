@@ -1,225 +1,225 @@
-IMPLEMENT PASSWORD KEYBOARD LIVE IME CLEARANCE
+IMPLEMENT APPROVED FAST EMAIL -> PASSWORD CLEARANCE FIX
 
 Do not stage.
 Do not commit.
 Do not push.
 
-Implement the approved plan:
+Implement:
 
-password_keyboard_clearance_071927cc.plan(3).md
+password_row_still_covered_799a9aa7.plan(2).md
 
-with this clarification:
-
-react-native-keyboard-controller gives us a LIVE keyboard HEIGHT.
-
-Do not assume it exposes a screenY/top value directly.
-
-==================================================
-1. INSTALL DEPENDENCY
-==================================================
-
-From mobile/, use the Expo-compatible install path:
-
-npx expo install react-native-keyboard-controller
-
-Use the SDK 54 compatible version selected by Expo.
-
-Do not manually force another version unless expo install resolves differently
-and report that result.
-
-Do not commit package changes.
-
-==================================================
-2. ROOT PROVIDER
-==================================================
-
-In:
-
-mobile/app/_layout.tsx
-
-wrap the existing application/navigation tree with KeyboardProvider as
-required by the library.
-
-Preserve completely:
-
-- Stack.Protected
-- profilePhase routing
-- splash logic
-- logout transition cover
-- all existing auth behavior
-
-Do not restructure navigation.
-
-Because this project already uses edge-to-edge Android behavior, do not add
-new keyboard-mode settings to app.json.
-
-==================================================
-3. KEEP CURRENT LOGIN BASE AVOIDANCE
-==================================================
-
-In:
+Modify ONLY:
 
 mobile/app/(auth)/login.tsx
 
-KEEP the existing working Android logic:
-
-keyboard closed
--> paddingBottom = 0
-
-normal first keyboard show
--> existing base padding
-
-keyboard hide
--> paddingBottom = 0 exactly
--> refresh closed-layout baseline
-
-Do not replace that logic with the library's KeyboardAvoidingView.
-
-The controller is being added ONLY to obtain the live keyboard height needed
-when Password changes the already-open IME height.
-
 ==================================================
-4. LIVE KEYBOARD HEIGHT
+1. FIRST KEYBOARD FRAME
 ==================================================
 
-Use an appropriate react-native-keyboard-controller hook/API that receives live
-Android keyboard height changes while the keyboard remains visible.
+On the first keyboardDidShow of an Android keyboard-open session, store:
 
-Prefer the library's live animation/handler value rather than its ordinary
-show/hide event API if the latter only reports visibility transitions.
+- firstScreenY
+- firstHeight = event.endCoordinates.height
+- basePadding = baselineBottom - firstScreenY
 
-The value must update when:
+This first frame is the Email/opening keyboard reference.
 
-Email keyboard
--> Password keyboard becomes taller
-
-Store/read the CURRENT keyboard height.
-
-Do not use React Native Keyboard.metrics() for this calculation.
+Do not replace these first-frame values with controller data.
 
 ==================================================
-5. DERIVE KEYBOARD TOP
+2. REPEAT keyboardDidShow
 ==================================================
 
-Do not assume keyboard-controller exposes screenY.
+If React Native emits another keyboardDidShow while the SAME keyboard session
+remains open:
 
-Use the already measured keyboard-closed absolute window bottom:
+newHeight = event.endCoordinates.height
 
-baselineBottom
+derive from the SAME first frame:
 
-Then derive:
+growth = newHeight - firstHeight
 
-actualCurrentKeyboardTop =
-baselineBottom - liveKeyboardHeight
+keyboardTop =
+firstScreenY - growth
 
-Both must represent the same window coordinate space.
+basePadding =
+baselineBottom - keyboardTop
 
-Do not use:
+Important:
 
-Dimensions height - keyboard height
+Do NOT trust repeat-event screenY directly unless current logic explicitly
+proves it moved correctly.
 
-unless inspection proves that value uses the exact same coordinate system as
-measureInWindow on this edge-to-edge screen.
+Use the first screenY + RN height delta.
+
+Do NOT increment basePadding cumulatively.
+
+Always derive from the original first frame so:
+
+Password taller -> padding increases
+Email shorter again -> padding can decrease
 
 ==================================================
-6. PASSWORD CLEARANCE
+3. FAST EMAIL -> PASSWORD
 ==================================================
 
-When Password receives focus:
+If Password is focused before the first keyboard-controller onEnd:
 
-1. restore padding to the base keyboard padding
-2. let the password keyboard/inset settle
-3. measure Password with measureInWindow()
+- do NOT cancel the keyboard session
+- do NOT invent coordinateGap
+- do NOT combine Email basePadding with a later Password controller height
 
-passwordFieldBottom =
-windowY + height
+Remain on the initial basePadding until RN emits the repeat show with the
+changed IME height.
 
-4. read the current LIVE keyboard height
-5. derive:
+Then update basePadding using the first-frame height delta and remeasure
+Password.
 
-actualCurrentKeyboardTop =
-baselineBottom - liveKeyboardHeight
+==================================================
+4. CONTROLLER coordinateGap
+==================================================
 
-6. calculate:
+Keep coordinateGap only when it can be validly established from a settled
+controller height that belongs to the initial keyboard frame before Password
+changes it.
 
-requiredExtra =
+If that valid calibration exists:
+
+- keep using live controller height for later in-place adjustments
+
+If it does not exist:
+
+- do not fabricate it
+- rely on the RN repeat keyboardDidShow height delta path
+
+Clear it on keyboard hide.
+
+==================================================
+5. HEADER MUST YIELD WHILE KEYBOARD IS OPEN
+==================================================
+
+This is critical.
+
+Closed keyboard / paddingBottom === 0:
+
+keep the existing normal header exactly:
+
+- flexGrow: 1
+- flexShrink: 0
+- minHeight: HEADER_MIN
+
+Android keyboard open / paddingBottom > 0:
+
+allow the header to yield:
+
+- flexShrink: 1
+- minHeight: 0
+
+Do not leave HEADER_MIN active while the keyboard is open.
+
+This ensures additional keyboard padding moves the card upward instead of
+clipping the white card from the bottom.
+
+Do not change the normal closed-screen design.
+
+==================================================
+6. PASSWORD EXTRA
+==================================================
+
+Keep passwordExtra separate from basePadding.
+
+Measure Password with measureInWindow.
+
+Because its measured position already contains the current passwordExtra:
+
+basePositionPasswordBottom =
+measuredPasswordBottom + currentPasswordExtra
+
+desiredPasswordExtra =
 Math.max(
-  passwordFieldBottom + 16 - actualCurrentKeyboardTop,
+  basePositionPasswordBottom
+  + 16
+  - actualCurrentKeyboardTop,
   0
 )
 
-7. final Android padding:
+paddingBottom =
+basePadding + desiredPasswordExtra
 
-baseKeyboardPadding + requiredExtra
-
-The entire Password field, including its bottom border, must remain above the
-keyboard with the 16dp safety margin.
+Do not accumulate overlap repeatedly.
 
 ==================================================
-7. EMAIL / HIDE
+7. EMAIL FOCUS
 ==================================================
 
-When focus returns to Email:
+If focus returns to Email:
 
-- remove only the password-specific extra
-- restore base keyboard padding
+passwordExtra = 0
 
-When keyboard hides:
+Keep the current appropriate basePadding for the current keyboard frame.
 
-- password extra = 0
-- base padding = 0
-- total paddingBottom = 0 exactly
-- keep the existing closed-layout baseline refresh
+If RN reports the keyboard becoming shorter again, recompute basePadding from:
 
-Do not allow live controller height changes during dismissal to leave residual
-padding.
+firstScreenY
+firstHeight
+newHeight
 
-==================================================
-8. IOS
-==================================================
-
-Do not change the current iOS KeyboardAvoidingView behavior.
-
-This new password-specific controller calculation is Android-only unless the
-existing code structure requires harmless provider presence.
+Do not leave the taller Password padding active.
 
 ==================================================
-9. DO NOT CHANGE
+8. KEYBOARD HIDE
 ==================================================
 
-Do not change:
+On hide:
 
-- login header flex/minHeight
-- app.json keyboard configuration
-- logout flow
-- AuthContext
+- cancel pending Password measurements
+- passwordExtra = 0
+- basePadding = 0
+- paddingBottom = 0 exactly
+- clear firstScreenY
+- clear firstHeight
+- clear coordinateGap
+- mark keyboard closed
+- restore normal header style automatically
+- refresh closed baseline after zero-padding layout commits
+
+The login screen after dismissal must remain identical to its original layout.
+
+==================================================
+9. DO NOT TOUCH
+==================================================
+
+Do not modify:
+
+- _layout.tsx
+- KeyboardProvider
 - Settings
-- machine/backend files
+- AuthContext
+- app.json
+- iOS behavior
+- logout
+- routing
 
-Do not add:
-
-- guessed keyboard-row height
+No:
+- guessed row height
 - ScrollView
 - translateY
 - behavior="height"
 
 ==================================================
-10. REPORT BEFORE BUILD
+RETURN AFTER IMPLEMENTATION
 ==================================================
 
-After implementation report:
+Report:
 
-1. exact dependency/version installed
-2. exact KeyboardProvider placement
-3. exact controller hook/API used for live height
-4. proof/explanation that its height updates while the keyboard remains open
-5. how actualCurrentKeyboardTop is derived
-6. password overlap formula
-7. Email-focus behavior
-8. keyboard-hide behavior
-9. exact files changed
-10. confirm nothing staged/committed/pushed
-
-Do NOT commit.
-
-Do NOT tell Git to stage anything.
+1. first-frame values stored
+2. repeat keyboardDidShow delta formula
+3. fast Email -> Password behavior
+4. controller calibration behavior
+5. exact keyboard-open header style
+6. exact closed header style
+7. Password extra formula
+8. Email-return behavior
+9. hide/reset behavior
+10. confirm login.tsx only changed
+11. confirm nothing staged/committed/pushed

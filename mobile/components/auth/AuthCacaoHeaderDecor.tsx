@@ -146,6 +146,7 @@ export function AuthCacaoHeaderDecor() {
 const styles = StyleSheet.create({
   fullScreen: {
     ...StyleSheet.absoluteFillObject,
+    overflow: 'hidden',
     zIndex: 0,
   },
   absoluteFill: {

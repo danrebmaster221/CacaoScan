@@ -159,9 +159,9 @@ const FieldInput = React.forwardRef<TextInput, TextInputProps>((props, ref) => {
 });
 FieldInput.displayName = 'FieldInput';
 
-function CacaoHeader() {
+function CacaoHeader({ yieldToKeyboard }: { yieldToKeyboard: boolean }) {
   return (
-    <View style={styles.header}>
+    <View style={[styles.header, yieldToKeyboard ? styles.headerYield : null]}>
       <View style={styles.logoWrap}>
         <Image
           source={require('@/assets/images/logo2.png')}
@@ -207,8 +207,17 @@ export default function LoginScreen() {
   const passwordFocusedRef = useRef(false);
   const pendingPasswordMeasureRef = useRef(false);
   const passwordMeasureLockRef = useRef(false);
-  const passwordMeasureTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const measureCoalesceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveKeyboardHeightRef = useRef(0);
+  const liveHeightSettledRef = useRef(false);
+  const coordinateGapRef = useRef<number | null>(null);
+  const awaitingCalibrationRef = useRef(false);
+  const calibrationAnchorPasswordRef = useRef(false);
+  const initialFrameChangedRef = useRef(false);
+  const firstScreenYRef = useRef<number | null>(null);
+  const firstHeightRef = useRef<number | null>(null);
+  const keyboardSessionRef = useRef(0);
+  const blockLiveHeightRef = useRef(false);
   const mountedRef = useRef(true);
   const [keyboardPadding, setKeyboardPadding] = useState(0);
 
@@ -227,53 +236,102 @@ export default function LoginScreen() {
   };
 
   const clearPasswordMeasureTimer = () => {
-    if (passwordMeasureTimerRef.current == null) return;
-    clearTimeout(passwordMeasureTimerRef.current);
-    passwordMeasureTimerRef.current = null;
+    if (measureCoalesceRef.current == null) return;
+    clearTimeout(measureCoalesceRef.current);
+    measureCoalesceRef.current = null;
   };
 
+  const schedulePasswordMeasureRef = useRef(() => {});
   const applyPasswordClearanceRef = useRef(() => {});
+
+  const tryCalibrateCoordinateGap = () => {
+    if (initialFrameChangedRef.current) return;
+    if (!awaitingCalibrationRef.current || coordinateGapRef.current != null) return;
+    if (!keyboardOpenRef.current || !liveHeightSettledRef.current) return;
+    const liveHeightAtShow = liveKeyboardHeightRef.current;
+    if (liveHeightAtShow <= 0) return;
+    if (passwordFocusedRef.current !== calibrationAnchorPasswordRef.current) {
+      initialFrameChangedRef.current = true;
+      awaitingCalibrationRef.current = false;
+      return;
+    }
+    coordinateGapRef.current = basePaddingRef.current - liveHeightAtShow;
+    awaitingCalibrationRef.current = false;
+    if (passwordFocusedRef.current) schedulePasswordMeasureRef.current();
+  };
+
+  schedulePasswordMeasureRef.current = () => {
+    if (!keyboardOpenRef.current || !passwordFocusedRef.current) return;
+    if (coordinateGapRef.current == null && firstScreenYRef.current == null) return;
+    const session = keyboardSessionRef.current;
+    clearPasswordMeasureTimer();
+    measureCoalesceRef.current = setTimeout(() => {
+      measureCoalesceRef.current = null;
+      if (session !== keyboardSessionRef.current) return;
+      requestAnimationFrame(() => {
+        if (session !== keyboardSessionRef.current) return;
+        applyPasswordClearanceRef.current();
+      });
+    }, 48);
+  };
+
   applyPasswordClearanceRef.current = () => {
     if (!mountedRef.current || !keyboardOpenRef.current || !passwordFocusedRef.current) return;
-    if (passwordMeasureLockRef.current) return;
     const baselineBottom = baselineBottomRef.current;
     const node = passwordFieldRef.current;
     const liveKeyboardHeight = liveKeyboardHeightRef.current;
-    if (baselineBottom == null || node == null || liveKeyboardHeight <= 0) {
+    const coordinateGap = coordinateGapRef.current;
+    if (baselineBottom == null || node == null) return;
+    if (coordinateGap != null && liveKeyboardHeight <= 0) return;
+    if (coordinateGap == null && firstScreenYRef.current == null) return;
+    if (passwordMeasureLockRef.current) {
       pendingPasswordMeasureRef.current = true;
       return;
     }
+    const session = keyboardSessionRef.current;
     passwordMeasureLockRef.current = true;
     node.measureInWindow((_x, y, _width, height) => {
       passwordMeasureLockRef.current = false;
+      if (session !== keyboardSessionRef.current) return;
       if (!mountedRef.current || !keyboardOpenRef.current || !passwordFocusedRef.current) return;
-      if (height <= 0) return;
-      const passwordFieldBottom = y + height;
-      const actualCurrentKeyboardTop = baselineBottom - liveKeyboardHeightRef.current;
-      const requiredExtra = Math.max(passwordFieldBottom + PASSWORD_SAFETY_MARGIN - actualCurrentKeyboardTop, 0);
-      passwordExtraRef.current = requiredExtra;
-      const total = basePaddingRef.current + requiredExtra;
+      const baseline = baselineBottomRef.current;
+      const liveNow = liveKeyboardHeightRef.current;
+      const gap = coordinateGapRef.current;
+      if (baseline == null || height <= 0) return;
+      if (gap != null && liveNow <= 0) return;
+      const measuredPasswordBottom = y + height;
+      const basePositionPasswordBottom = measuredPasswordBottom + passwordExtraRef.current;
+      const actualCurrentKeyboardTop = gap != null
+        ? baseline - liveNow - gap
+        : baseline - basePaddingRef.current;
+      const desiredPasswordExtra = Math.max(
+        basePositionPasswordBottom + PASSWORD_SAFETY_MARGIN - actualCurrentKeyboardTop,
+        0,
+      );
+      passwordExtraRef.current = desiredPasswordExtra;
+      const total = basePaddingRef.current + desiredPasswordExtra;
       paddingRef.current = total;
       setKeyboardPadding(total);
+      if (!pendingPasswordMeasureRef.current) return;
+      pendingPasswordMeasureRef.current = false;
+      schedulePasswordMeasureRef.current();
     });
   };
 
   const rememberLiveHeight = useRef((height: number) => {
+    if (blockLiveHeightRef.current || height <= 0) return;
     liveKeyboardHeightRef.current = height;
+    liveHeightSettledRef.current = false;
+    if (!keyboardOpenRef.current || !passwordFocusedRef.current || coordinateGapRef.current == null) return;
+    schedulePasswordMeasureRef.current();
   }).current;
   const finishLiveHeight = useRef((height: number) => {
+    if (blockLiveHeightRef.current || height <= 0) return;
     liveKeyboardHeightRef.current = height;
-    if (!pendingPasswordMeasureRef.current) return;
-    if (!keyboardOpenRef.current || !passwordFocusedRef.current) {
-      pendingPasswordMeasureRef.current = false;
-      return;
-    }
-    pendingPasswordMeasureRef.current = false;
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        applyPasswordClearanceRef.current();
-      });
-    });
+    liveHeightSettledRef.current = true;
+    tryCalibrateCoordinateGap();
+    if (!keyboardOpenRef.current || !passwordFocusedRef.current || coordinateGapRef.current == null) return;
+    schedulePasswordMeasureRef.current();
   }).current;
 
   useGenericKeyboardHandler({
@@ -290,21 +348,41 @@ export default function LoginScreen() {
   const beginPasswordClearance = () => {
     passwordFocusedRef.current = true;
     if (Platform.OS !== 'android') return;
-    pendingPasswordMeasureRef.current = true;
-    passwordMeasureLockRef.current = false;
-    passwordExtraRef.current = 0;
-    if (keyboardOpenRef.current) {
-      paddingRef.current = basePaddingRef.current;
-      setKeyboardPadding(basePaddingRef.current);
+    blockLiveHeightRef.current = false;
+    if (awaitingCalibrationRef.current && !calibrationAnchorPasswordRef.current) {
+      initialFrameChangedRef.current = true;
+      awaitingCalibrationRef.current = false;
     }
-    clearPasswordMeasureTimer();
-    passwordMeasureTimerRef.current = setTimeout(() => {
-      passwordMeasureTimerRef.current = null;
-      if (!pendingPasswordMeasureRef.current) return;
-      if (!keyboardOpenRef.current || !passwordFocusedRef.current) return;
-      pendingPasswordMeasureRef.current = false;
-      applyPasswordClearanceRef.current();
-    }, 320);
+    if (keyboardOpenRef.current && (coordinateGapRef.current != null || firstScreenYRef.current != null)) {
+      schedulePasswordMeasureRef.current();
+    }
+  };
+
+  const onKeyboardShowRef = useRef<(event: { endCoordinates: { screenY: number; height: number } }) => void>(() => {});
+  onKeyboardShowRef.current = (event) => {
+    keyboardOpenRef.current = true;
+    blockLiveHeightRef.current = false;
+    const baselineBottom = baselineBottomRef.current;
+    if (baselineBottom == null) return;
+    if (firstScreenYRef.current == null || firstHeightRef.current == null) {
+      firstScreenYRef.current = event.endCoordinates.screenY;
+      firstHeightRef.current = event.endCoordinates.height;
+      basePaddingRef.current = Math.max(baselineBottom - event.endCoordinates.screenY, 0);
+      passwordExtraRef.current = 0;
+      coordinateGapRef.current = null;
+      awaitingCalibrationRef.current = true;
+      calibrationAnchorPasswordRef.current = passwordFocusedRef.current;
+      initialFrameChangedRef.current = false;
+      tryCalibrateCoordinateGap();
+    } else {
+      const growth = event.endCoordinates.height - firstHeightRef.current;
+      const keyboardTop = firstScreenYRef.current - growth;
+      basePaddingRef.current = Math.max(baselineBottom - keyboardTop, 0);
+      if (!passwordFocusedRef.current) passwordExtraRef.current = 0;
+    }
+    paddingRef.current = basePaddingRef.current + passwordExtraRef.current;
+    setKeyboardPadding(paddingRef.current);
+    if (passwordFocusedRef.current) schedulePasswordMeasureRef.current();
   };
 
   const restoreBaseKeyboardPadding = () => {
@@ -312,6 +390,7 @@ export default function LoginScreen() {
     pendingPasswordMeasureRef.current = false;
     passwordMeasureLockRef.current = false;
     clearPasswordMeasureTimer();
+    if (Platform.OS === 'android') blockLiveHeightRef.current = false;
     if (Platform.OS !== 'android' || !keyboardOpenRef.current) return;
     passwordExtraRef.current = 0;
     paddingRef.current = basePaddingRef.current;
@@ -332,18 +411,20 @@ export default function LoginScreen() {
     }
 
     const showSub = Keyboard.addListener('keyboardDidShow', (event) => {
-      keyboardOpenRef.current = true;
-      const baselineBottom = baselineBottomRef.current;
-      if (baselineBottom == null) return;
-      const keyboardTop = event.endCoordinates.screenY;
-      const nextPadding = Math.max(baselineBottom - keyboardTop, 0);
-      basePaddingRef.current = nextPadding;
-      passwordExtraRef.current = 0;
-      paddingRef.current = nextPadding;
-      setKeyboardPadding(nextPadding);
+      onKeyboardShowRef.current(event);
     });
     const hideSub = Keyboard.addListener('keyboardDidHide', () => {
       keyboardOpenRef.current = false;
+      keyboardSessionRef.current += 1;
+      blockLiveHeightRef.current = true;
+      awaitingCalibrationRef.current = false;
+      initialFrameChangedRef.current = false;
+      calibrationAnchorPasswordRef.current = false;
+      coordinateGapRef.current = null;
+      firstScreenYRef.current = null;
+      firstHeightRef.current = null;
+      liveHeightSettledRef.current = false;
+      liveKeyboardHeightRef.current = 0;
       pendingPasswordMeasureRef.current = false;
       passwordMeasureLockRef.current = false;
       clearPasswordMeasureTimer();
@@ -459,8 +540,8 @@ export default function LoginScreen() {
 
       <AuthCacaoFullScreenBackground />
 
-      <View style={styles.layout}>
-        <CacaoHeader />
+      <View style={[styles.layout, { paddingBottom: keyboardPadding }]} collapsable={false}>
+        <CacaoHeader yieldToKeyboard={Platform.OS === 'android' && keyboardPadding > 0} />
 
         <View style={styles.cardBleed}>
           <View style={styles.cardShadow}>
@@ -678,7 +759,7 @@ export default function LoginScreen() {
   return (
     <View
       ref={containerRef}
-      style={[styles.container, { paddingBottom: keyboardPadding }]}
+      style={styles.container}
       onLayout={() => storeClosedBaseline()}
     >
       {screen}
@@ -689,13 +770,25 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    position: 'relative',
     backgroundColor: UI.headerStart,
   },
 
-  layout: {
-    flex: 1,
-    zIndex: 1,
-  },
+  layout: Platform.select({
+    android: {
+      position: 'absolute' as const,
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+      zIndex: 1,
+      elevation: 4,
+    },
+    default: {
+      flex: 1,
+      zIndex: 1,
+    },
+  }),
 
   header: {
     flexGrow: 1,
@@ -707,6 +800,10 @@ const styles = StyleSheet.create({
     paddingBottom: CARD_TOP + 14,
     overflow: 'visible',
     zIndex: 1,
+  },
+  headerYield: {
+    flexShrink: 1,
+    minHeight: 0,
   },
   logoWrap: {
     alignItems: 'center',
