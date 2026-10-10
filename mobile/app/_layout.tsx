@@ -2,8 +2,9 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
-import { StyleSheet } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
 import 'react-native-reanimated';
 import '../global.css';
 
@@ -53,58 +54,94 @@ const CacaoDarkTheme = {
 };
 
 function RootLayoutNav({ fontsLoaded }: { fontsLoaded: boolean }) {
-  const { session, isLoading, pendingMFA, userProfile, user } = useAuth();
+  const { profilePhase, pendingMFA, refreshProfile } = useAuth();
   const segments = useSegments();
   const router = useRouter();
-  const [navReady, setNavReady] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const loading = profilePhase === 'restoring' || profilePhase === 'loadingProfile';
+
+  const inAuthGroup = segments[0] === ('(auth)' as string);
+  const isCompleteProfileRoute = inAuthGroup && segments[1] === 'complete-profile';
+  const onLogin = inAuthGroup && segments[1] === 'login';
+  const onTabs = segments[0] === ('(tabs)' as string);
+  const showSignOutCover = profilePhase === 'signedOut' && !onLogin && (!inAuthGroup || isCompleteProfileRoute);
 
   useEffect(() => {
-    if (isLoading) return;
+    if (loading) return;
 
-    const inAuthGroup = segments[0] === ('(auth)' as string);
-    const isCompleteProfileRoute = inAuthGroup && segments[1] === 'complete-profile';
-
-    if (!session && !inAuthGroup) {
-      // Not signed in → redirect to login
-      router.replace('/(auth)/login' as any);
-    } else if (session) {
-      // Check Boot Guard: Are they authenticated but missing profile details?
-      const meta = user?.user_metadata;
-      const hasMetaProfile = meta?.first_name && meta?.last_name && meta?.farm_location;
-      const hasTableProfile = userProfile?.first_name && userProfile?.last_name && userProfile?.farm_location;
-      const isMissingProfile = !hasMetaProfile && !hasTableProfile;
-
-      if (isMissingProfile) {
-        if (!isCompleteProfileRoute) {
-          router.replace('/(auth)/complete-profile' as any);
-        }
-      } else if (inAuthGroup && !pendingMFA && !isCompleteProfileRoute) {
+    if (profilePhase === 'signedOut') {
+      if (!inAuthGroup || isCompleteProfileRoute) {
+        router.replace('/(auth)/login' as any);
+      }
+    } else if (profilePhase === 'incomplete') {
+      if (!isCompleteProfileRoute) {
+        router.replace('/(auth)/complete-profile' as any);
+      }
+    } else if (profilePhase === 'ready') {
+      if (inAuthGroup && !pendingMFA) {
         router.replace('/(tabs)' as any);
       }
     }
+  }, [profilePhase, loading, inAuthGroup, isCompleteProfileRoute, pendingMFA, router]);
 
-    // Mark navigation as ready — correct route is now being shown
-    if (!navReady) setNavReady(true);
-  }, [session, isLoading, segments, pendingMFA, router, userProfile, user, navReady]);
+  const routeSettled =
+    (profilePhase === 'signedOut' && inAuthGroup && !isCompleteProfileRoute) ||
+    (profilePhase === 'incomplete' && isCompleteProfileRoute) ||
+    (profilePhase === 'ready' && onTabs) ||
+    profilePhase === 'profileError';
 
-  // Only hide splash when fonts loaded, auth resolved, AND navigation settled
   useEffect(() => {
-    if (fontsLoaded && !isLoading && navReady) {
-      // Small delay to let the route transition complete before revealing
+    if (fontsLoaded && !loading && routeSettled) {
       const timer = setTimeout(() => SplashScreen.hideAsync(), 100);
       return () => clearTimeout(timer);
     }
-  }, [fontsLoaded, isLoading, navReady]);
+  }, [fontsLoaded, loading, routeSettled]);
+
+  async function handleProfileRetry() {
+    setRetrying(true);
+    await refreshProfile();
+    setRetrying(false);
+  }
+
+  const showProfileGate = profilePhase === 'profileError' || retrying;
 
   return (
-    <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="(auth)" />
-      <Stack.Screen name="(tabs)" />
-      <Stack.Screen
-        name="manual-override"
-        options={{ presentation: 'modal', headerShown: false }}
-      />
-    </Stack>
+    <View style={styles.navRoot}>
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="(auth)" />
+        <Stack.Protected guard={profilePhase === 'ready'}>
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen
+            name="manual-override"
+            options={{ presentation: 'modal', headerShown: false }}
+          />
+        </Stack.Protected>
+      </Stack>
+      {showSignOutCover && (
+        <View style={styles.profileGate}>
+          <ActivityIndicator color="#6B3F2A" size="large" />
+        </View>
+      )}
+      {showProfileGate && (
+        <View style={styles.profileGate}>
+          <Text style={styles.profileGateTitle}>Profile unavailable</Text>
+          <Text style={styles.profileGateBody}>
+            The account profile could not be loaded. The app stays here until that read succeeds.
+          </Text>
+          <TouchableOpacity
+            style={styles.profileGateButton}
+            onPress={handleProfileRetry}
+            disabled={retrying}
+          >
+            {retrying ? (
+              <ActivityIndicator color="#FFF8F0" />
+            ) : (
+              <Text style={styles.profileGateButtonText}>Retry</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -139,14 +176,49 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={styles.root}>
-      <CacaoThemeProvider>
-        <RootApp fontsLoaded={fontsLoaded} />
-      </CacaoThemeProvider>
+      <KeyboardProvider>
+        <CacaoThemeProvider>
+          <RootApp fontsLoaded={fontsLoaded} />
+        </CacaoThemeProvider>
+      </KeyboardProvider>
     </GestureHandlerRootView>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  navRoot: { flex: 1 },
+  profileGate: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#F6F1EA',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 28,
+  },
+  profileGateTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#2C1810',
+    marginBottom: 8,
+  },
+  profileGateBody: {
+    fontSize: 15,
+    color: '#5C4A3A',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  profileGateButton: {
+    backgroundColor: '#6B3F2A',
+    borderRadius: 12,
+    paddingHorizontal: 28,
+    paddingVertical: 12,
+    minWidth: 120,
+    alignItems: 'center',
+  },
+  profileGateButtonText: {
+    color: '#FFF8F0',
+    fontSize: 16,
+    fontWeight: '600',
+  },
 });
 

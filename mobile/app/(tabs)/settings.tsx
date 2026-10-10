@@ -7,7 +7,7 @@ import {
   ScrollView,
   Modal,
   Pressable,
-  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -58,38 +58,61 @@ function SettingsItem({ icon, label, subtitle, onPress, theme }: SettingsItemPro
 
 interface SignOutModalProps {
   visible: boolean;
+  signingOut: boolean;
+  error: string | null;
   onCancel: () => void;
   onConfirm: () => void;
   theme: typeof Colors.light;
 }
 
-function SignOutModal({ visible, onCancel, onConfirm, theme }: SignOutModalProps) {
+function SignOutModal({ visible, signingOut, error, onCancel, onConfirm, theme }: SignOutModalProps) {
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={signingOut ? undefined : onCancel}
+    >
       <View style={styles.modalOverlay}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onCancel} />
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={signingOut ? undefined : onCancel}
+        />
         <View style={[styles.modalCard, { backgroundColor: theme.surface }, Shadows.md]}>
           <View style={[styles.modalIconWrap, { backgroundColor: theme.background }]}>
-            <Ionicons name="log-out-outline" size={28} color={SIGN_OUT_BROWN} />
+            {signingOut ? (
+              <ActivityIndicator color={SIGN_OUT_BROWN} />
+            ) : (
+              <Ionicons name="log-out-outline" size={28} color={SIGN_OUT_BROWN} />
+            )}
           </View>
 
-          <Text style={[styles.modalTitle, { color: theme.text }]}>Sign out?</Text>
-          <Text style={[styles.modalMessage, { color: theme.textSecondary }]}>
-            You will need to sign in again to access your CacaoScan account.
+          <Text style={[styles.modalTitle, { color: theme.text }]}>
+            {signingOut ? 'Signing out...' : 'Sign out?'}
           </Text>
+          <Text style={[styles.modalMessage, { color: theme.textSecondary }]}>
+            {signingOut
+              ? 'Please wait while your session is closed.'
+              : 'You will need to sign in again to access your CacaoScan account.'}
+          </Text>
+          {error ? (
+            <Text style={[styles.modalMessage, { color: theme.danger }]}>{error}</Text>
+          ) : null}
 
           <View style={styles.modalActions}>
             <TouchableOpacity
-              style={[styles.modalCancelBtn, { borderColor: theme.border }]}
+              style={[styles.modalCancelBtn, { borderColor: theme.border }, signingOut && { opacity: 0.45 }]}
               onPress={onCancel}
+              disabled={signingOut}
               activeOpacity={0.7}
             >
               <Text style={[styles.modalCancelText, { color: theme.text }]}>Cancel</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.modalSignOutBtn}
+              style={[styles.modalSignOutBtn, signingOut && { opacity: 0.45 }]}
               onPress={onConfirm}
+              disabled={signingOut}
               activeOpacity={0.85}
             >
               <Text style={styles.modalSignOutText}>Sign out</Text>
@@ -172,18 +195,22 @@ export default function SettingsScreen() {
   const { isConnected, isConnecting, serverHost, connect, enableDemoMode } = useESP32Connection();
   const router = useRouter();
   const [showSignOutModal, setShowSignOutModal] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
   const [showThemeModal, setShowThemeModal] = useState(false);
 
   const displayName = user?.user_metadata?.full_name || user?.user_metadata?.first_name || (userRole === 'admin' ? 'Admin' : 'Farmer');
   const online = isConnected;
 
   async function handleSignOutConfirm() {
-    setShowSignOutModal(false);
+    if (signingOut) return;
+    setSigningOut(true);
+    setSignOutError(null);
     try {
       await signOut();
-      router.replace('/(auth)/login' as any);
-    } catch {
-      Alert.alert('Sign out failed', 'Please try again.');
+    } catch (error) {
+      setSigningOut(false);
+      setSignOutError(error instanceof Error ? error.message : 'Sign out failed. Please try again.');
     }
   }
 
@@ -309,7 +336,12 @@ export default function SettingsScreen() {
 
         <TouchableOpacity
           style={styles.signOutButton}
-          onPress={() => setShowSignOutModal(true)}
+          onPress={() => {
+            if (signingOut) return;
+            setSignOutError(null);
+            setShowSignOutModal(true);
+          }}
+          disabled={signingOut}
           activeOpacity={0.85}
         >
           <Text style={styles.signOutText}>Sign out</Text>
@@ -318,7 +350,12 @@ export default function SettingsScreen() {
 
       <SignOutModal
         visible={showSignOutModal}
-        onCancel={() => setShowSignOutModal(false)}
+        signingOut={signingOut}
+        error={signOutError}
+        onCancel={() => {
+          if (signingOut) return;
+          setShowSignOutModal(false);
+        }}
         onConfirm={handleSignOutConfirm}
         theme={theme}
       />

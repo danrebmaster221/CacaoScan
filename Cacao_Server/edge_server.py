@@ -7,6 +7,7 @@ CacaoScan Edge AI Server - Multi-Bean Real-Time Bounding Box HUD
 import atexit
 import ipaddress
 import os
+import secrets
 import socket
 import sys
 import time
@@ -176,7 +177,7 @@ atexit.register(stop_mdns_advertisement)
 start_mdns_advertisement()
 
 import cv2
-from flask import Flask, Response, request
+from flask import Flask, Response, jsonify, request
 from ultralytics import YOLO
 
 app = Flask(__name__)
@@ -196,6 +197,25 @@ latest_display_frame = None
 frame_lock = threading.Lock()
 current_classification = "EMPTY"
 
+EVENT_BUFFER_LIMIT = 50
+stream_id = secrets.token_hex(8)
+event_counter = 0
+event_buffer = []
+event_lock = threading.Lock()
+
+def record_classification_event(classification):
+    global event_counter
+    if classification == "EMPTY":
+        return
+    with event_lock:
+        event_counter += 1
+        event_buffer.append({
+            "event_id": event_counter,
+            "operational_class": classification,
+        })
+        if len(event_buffer) > EVENT_BUFFER_LIMIT:
+            del event_buffer[:-EVENT_BUFFER_LIMIT]
+
 @app.route('/health', methods=['GET'])
 def health():
     return MACHINE_ID, 200
@@ -206,8 +226,34 @@ def trigger_ai():
     requested_id = (request.args.get("machine_id") or "").strip()
     if requested_id != MACHINE_ID:
         return "machine_id mismatch", 403
-    print(f"\n[SIGNAL] ESP32 Scan Request -> Returning: {current_classification}")
-    return current_classification
+    classification = current_classification
+    print(f"\n[SIGNAL] ESP32 Scan Request -> Returning: {classification}")
+    record_classification_event(classification)
+    return classification
+
+@app.route('/events', methods=['GET'])
+def events():
+    requested_id = (request.args.get("machine_id") or "").strip()
+    if requested_id != MACHINE_ID:
+        return "machine_id mismatch", 403
+    try:
+        after = int(request.args.get("after") or "0")
+    except ValueError:
+        after = 0
+    with event_lock:
+        latest_event_id = event_counter
+        current_stream = stream_id
+        events_after = [
+            {"event_id": event["event_id"], "operational_class": event["operational_class"]}
+            for event in event_buffer
+            if event["event_id"] > after
+        ]
+    return jsonify({
+        "machine_id": MACHINE_ID,
+        "stream_id": current_stream,
+        "latest_event_id": latest_event_id,
+        "events": events_after,
+    })
 
 def generate_mjpeg():
     while True:

@@ -9,10 +9,8 @@ import {
   Platform,
   ScrollView,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { Colors, Typography, Spacing, Radius, Shadows } from '@/constants/theme';
 import {
@@ -25,8 +23,7 @@ import { useLocationSearch, LocationResult } from '@/hooks/use-location-search';
 import { StepIndicator } from '@/components/StepIndicator';
 
 export default function CompleteProfileScreen() {
-  const { user, completeGoogleProfile, signOut } = useAuth();
-  const router = useRouter();
+  const { user, completeGoogleProfile, refreshProfile, signOut } = useAuth();
   const theme = Colors.light;
 
   const [loading, setLoading] = useState(false);
@@ -113,28 +110,18 @@ export default function CompleteProfileScreen() {
       cleanLocation,
       password
     );
-    setLoading(false);
-
     if (completeError) {
+      setLoading(false);
       setError(completeError);
-    } else {
-      if (Platform.OS === 'web') {
-        window.alert('Profile completed! You can now log into the mobile app and web dashboard.');
-        setTimeout(() => {
-          router.replace('/(tabs)' as any);
-        }, 150);
-      } else {
-        Alert.alert('Success', 'Profile completed! You can now log into the mobile app and web dashboard.', [
-          { 
-            text: 'Continue', 
-            onPress: () => {
-              setTimeout(() => {
-                router.replace('/(tabs)' as any);
-              }, 150);
-            } 
-          }
-        ]);
-      }
+      return;
+    }
+
+    const phase = await refreshProfile();
+    setLoading(false);
+    if (phase === 'profileError') {
+      setError('Profile was saved, but it could not be reloaded. Please try again.');
+    } else if (phase === 'incomplete') {
+      setError('Profile was saved, but the stored profile is still incomplete.');
     }
   };
 

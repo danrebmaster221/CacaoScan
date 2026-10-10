@@ -94,6 +94,11 @@ export function ESP32Provider({ children }: { children: React.ReactNode }) {
   const beanHandlerRef = useRef<BeanHandler | undefined>(undefined);
   const hostRef = useRef(DEFAULT_HOST);
   const identitySeq = useRef(0);
+  const edgeIdentityRef = useRef<EdgeIdentityStatus>('unknown');
+  const linkedMachineIdRef = useRef('');
+  const lastStreamIdRef = useRef<string | null>(null);
+  const lastEventIdRef = useRef(0);
+  const pollInFlightRef = useRef(false);
 
   const refreshEdgeIdentity = useCallback(async (host: string) => {
     const cleaned = hostOnly(host);
@@ -125,6 +130,7 @@ export function ESP32Provider({ children }: { children: React.ReactNode }) {
       const linked =
         !error && typeof data?.linked_machine_id === 'string' ? data.linked_machine_id.trim() : '';
       console.log('[edge-health] linked_machine_id', linked || '(none)');
+      linkedMachineIdRef.current = linked;
       if (!linked) {
         setEdgeIdentity('unpaired');
         return;
@@ -335,8 +341,9 @@ export function ESP32Provider({ children }: { children: React.ReactNode }) {
               if (message.type === 'STATUS') {
                 setMachineState(message.state);
               } else if (
-                message.type === 'BEAN_DETECTED' ||
-                message.type === 'classification_result'
+                demoRef.current &&
+                (message.type === 'BEAN_DETECTED' ||
+                  message.type === 'classification_result')
               ) {
                 handleBeanMessage(message);
               }
@@ -373,6 +380,100 @@ export function ESP32Provider({ children }: { children: React.ReactNode }) {
     },
     [handleBeanMessage, setServerHost]
   );
+
+  useEffect(() => {
+    edgeIdentityRef.current = edgeIdentity;
+  }, [edgeIdentity]);
+
+  const applyEventList = useCallback(
+    (events: Array<{ event_id?: number; operational_class?: string }>) => {
+      let highest = lastEventIdRef.current;
+      for (const event of events) {
+        const eventId = event.event_id;
+        const operationalClass = event.operational_class;
+        if (typeof eventId !== 'number' || eventId <= highest) continue;
+        if (!operationalClass || operationalClass === 'EMPTY') continue;
+        handleBeanMessage({
+          data: { operational_class: operationalClass, confidence: 0 },
+          timestamp: new Date().toISOString(),
+        });
+        highest = eventId;
+        lastEventIdRef.current = highest;
+      }
+    },
+    [handleBeanMessage]
+  );
+
+  useEffect(() => {
+    if (edgeIdentity !== 'matched' || isDemoMode) return;
+    let stopped = false;
+
+    const fetchEvents = async (after: number) => {
+      const host = hostOnly(hostRef.current);
+      const machineId = linkedMachineIdRef.current;
+      if (!host || !machineId) return null;
+      const url =
+        `http://${host}:${EDGE_PORT}/events?after=${after}` +
+        `&machine_id=${encodeURIComponent(machineId)}`;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      try {
+        const res = await fetch(url, { signal: controller.signal });
+        if (!res.ok) return null;
+        const body = await res.json();
+        if (!body || typeof body.stream_id !== 'string' || !Array.isArray(body.events)) return null;
+        return body as {
+          stream_id: string;
+          events: Array<{ event_id?: number; operational_class?: string }>;
+        };
+      } catch {
+        return null;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    };
+
+    const pollOnce = async () => {
+      if (stopped || pollInFlightRef.current || demoRef.current) return;
+      if (edgeIdentityRef.current !== 'matched') return;
+      pollInFlightRef.current = true;
+      try {
+        const after = lastStreamIdRef.current == null ? 0 : lastEventIdRef.current;
+        const payload = await fetchEvents(after);
+        if (stopped || !payload || demoRef.current || edgeIdentityRef.current !== 'matched') return;
+
+        const streamId = payload.stream_id;
+        const remembered = lastStreamIdRef.current;
+        if (remembered == null || streamId === remembered) {
+          lastStreamIdRef.current = streamId;
+          applyEventList(payload.events);
+          return;
+        }
+
+        lastStreamIdRef.current = streamId;
+        lastEventIdRef.current = 0;
+        const refetch = await fetchEvents(0);
+        if (stopped || !refetch || demoRef.current || edgeIdentityRef.current !== 'matched') return;
+        if (refetch.stream_id === streamId) {
+          applyEventList(refetch.events);
+          return;
+        }
+        lastStreamIdRef.current = refetch.stream_id;
+        lastEventIdRef.current = 0;
+      } finally {
+        pollInFlightRef.current = false;
+      }
+    };
+
+    void pollOnce();
+    const timer = setInterval(() => {
+      void pollOnce();
+    }, 1000);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [applyEventList, edgeIdentity, isDemoMode]);
 
   const sendCommand = useCallback((command: 'START' | 'PAUSE' | 'STOP') => {
     if (demoRef.current) {

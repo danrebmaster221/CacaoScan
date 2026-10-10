@@ -11,7 +11,7 @@
  * - #18: Brute force lockout timer display
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -20,12 +20,11 @@ import {
   Pressable,
   StyleSheet,
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
   ActivityIndicator,
   Image,
   Dimensions,
-  Keyboard,
-  Animated as RNAnimated,
   type TextInputProps,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
@@ -41,7 +40,9 @@ import Animated, {
   withSequence,
   Easing,
   interpolateColor,
+  runOnJS,
 } from 'react-native-reanimated';
+import { useGenericKeyboardHandler } from 'react-native-keyboard-controller';
 import { useAuth } from '@/context/AuthContext';
 import { Typography } from '@/constants/theme';
 import {
@@ -64,7 +65,7 @@ import { CacaoSeedConveyorBelt } from '@/components/auth/CacaoSeedConveyorBelt';
 
 const { height: SCREEN_H } = Dimensions.get('window');
 const HEADER_MIN = Math.max(300, SCREEN_H * 0.4);
-const HEADER_KEYBOARD = 120;
+const PASSWORD_SAFETY_MARGIN = 16;
 
 const S = { xs: 8, sm: 16, md: 24, lg: 32 } as const;
 const PILL = 999;
@@ -158,9 +159,9 @@ const FieldInput = React.forwardRef<TextInput, TextInputProps>((props, ref) => {
 });
 FieldInput.displayName = 'FieldInput';
 
-function CacaoHeader({ animatedHeight }: { animatedHeight: RNAnimated.Value }) {
+function CacaoHeader() {
   return (
-    <RNAnimated.View style={[styles.header, { minHeight: animatedHeight }]}>
+    <View style={styles.header}>
       <View style={styles.logoWrap}>
         <Image
           source={require('@/assets/images/logo2.png')}
@@ -169,7 +170,7 @@ function CacaoHeader({ animatedHeight }: { animatedHeight: RNAnimated.Value }) {
         />
       </View>
       <CacaoSeedConveyorBelt style={styles.conveyorBelt} />
-    </RNAnimated.View>
+    </View>
   );
 }
 
@@ -195,30 +196,183 @@ export default function LoginScreen() {
   const errorShake = useSharedValue(0);
   const toggleScale = useSharedValue(1);
 
-  // Keyboard-aware header animation
-  const headerHeight = useRef(new RNAnimated.Value(HEADER_MIN)).current;
   const passwordRef = useRef<TextInput>(null);
+  const passwordFieldRef = useRef<View>(null);
+  const containerRef = useRef<View>(null);
+  const baselineBottomRef = useRef<number | null>(null);
+  const keyboardOpenRef = useRef(false);
+  const paddingRef = useRef(0);
+  const basePaddingRef = useRef(0);
+  const passwordExtraRef = useRef(0);
+  const passwordFocusedRef = useRef(false);
+  const pendingPasswordMeasureRef = useRef(false);
+  const passwordMeasureLockRef = useRef(false);
+  const passwordMeasureTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const liveKeyboardHeightRef = useRef(0);
+  const mountedRef = useRef(true);
+  const [keyboardPadding, setKeyboardPadding] = useState(0);
+
+  const storeClosedBaseline = () => {
+    const node = containerRef.current;
+    if (!mountedRef.current || node == null) return;
+    if (keyboardOpenRef.current || paddingRef.current !== 0) return;
+    if (Keyboard.isVisible()) return;
+    node.measureInWindow((_x, y, _width, height) => {
+      if (!mountedRef.current) return;
+      if (keyboardOpenRef.current || paddingRef.current !== 0) return;
+      if (Keyboard.isVisible()) return;
+      if (height <= 0) return;
+      baselineBottomRef.current = y + height;
+    });
+  };
+
+  const clearPasswordMeasureTimer = () => {
+    if (passwordMeasureTimerRef.current == null) return;
+    clearTimeout(passwordMeasureTimerRef.current);
+    passwordMeasureTimerRef.current = null;
+  };
+
+  const applyPasswordClearanceRef = useRef(() => {});
+  applyPasswordClearanceRef.current = () => {
+    if (!mountedRef.current || !keyboardOpenRef.current || !passwordFocusedRef.current) return;
+    if (passwordMeasureLockRef.current) return;
+    const baselineBottom = baselineBottomRef.current;
+    const node = passwordFieldRef.current;
+    const liveKeyboardHeight = liveKeyboardHeightRef.current;
+    if (baselineBottom == null || node == null || liveKeyboardHeight <= 0) {
+      pendingPasswordMeasureRef.current = true;
+      return;
+    }
+    passwordMeasureLockRef.current = true;
+    node.measureInWindow((_x, y, _width, height) => {
+      passwordMeasureLockRef.current = false;
+      if (!mountedRef.current || !keyboardOpenRef.current || !passwordFocusedRef.current) return;
+      if (height <= 0) return;
+      const passwordFieldBottom = y + height;
+      const actualCurrentKeyboardTop = baselineBottom - liveKeyboardHeightRef.current;
+      const requiredExtra = Math.max(passwordFieldBottom + PASSWORD_SAFETY_MARGIN - actualCurrentKeyboardTop, 0);
+      passwordExtraRef.current = requiredExtra;
+      const total = basePaddingRef.current + requiredExtra;
+      paddingRef.current = total;
+      setKeyboardPadding(total);
+    });
+  };
+
+  const rememberLiveHeight = useRef((height: number) => {
+    liveKeyboardHeightRef.current = height;
+  }).current;
+  const finishLiveHeight = useRef((height: number) => {
+    liveKeyboardHeightRef.current = height;
+    if (!pendingPasswordMeasureRef.current) return;
+    if (!keyboardOpenRef.current || !passwordFocusedRef.current) {
+      pendingPasswordMeasureRef.current = false;
+      return;
+    }
+    pendingPasswordMeasureRef.current = false;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        applyPasswordClearanceRef.current();
+      });
+    });
+  }).current;
+
+  useGenericKeyboardHandler({
+    onMove: (event) => {
+      'worklet';
+      runOnJS(rememberLiveHeight)(event.height);
+    },
+    onEnd: (event) => {
+      'worklet';
+      runOnJS(finishLiveHeight)(event.height);
+    },
+  }, []);
+
+  const beginPasswordClearance = () => {
+    passwordFocusedRef.current = true;
+    if (Platform.OS !== 'android') return;
+    pendingPasswordMeasureRef.current = true;
+    passwordMeasureLockRef.current = false;
+    passwordExtraRef.current = 0;
+    if (keyboardOpenRef.current) {
+      paddingRef.current = basePaddingRef.current;
+      setKeyboardPadding(basePaddingRef.current);
+    }
+    clearPasswordMeasureTimer();
+    passwordMeasureTimerRef.current = setTimeout(() => {
+      passwordMeasureTimerRef.current = null;
+      if (!pendingPasswordMeasureRef.current) return;
+      if (!keyboardOpenRef.current || !passwordFocusedRef.current) return;
+      pendingPasswordMeasureRef.current = false;
+      applyPasswordClearanceRef.current();
+    }, 320);
+  };
+
+  const restoreBaseKeyboardPadding = () => {
+    passwordFocusedRef.current = false;
+    pendingPasswordMeasureRef.current = false;
+    passwordMeasureLockRef.current = false;
+    clearPasswordMeasureTimer();
+    if (Platform.OS !== 'android' || !keyboardOpenRef.current) return;
+    passwordExtraRef.current = 0;
+    paddingRef.current = basePaddingRef.current;
+    setKeyboardPadding(basePaddingRef.current);
+  };
 
   useEffect(() => {
     checkLockout();
+    return () => clearPasswordMeasureTimer();
+  }, []);
 
-    // Animate header shrink/expand on keyboard show/hide
-    const showSub = Keyboard.addListener('keyboardDidShow', () => {
-      RNAnimated.timing(headerHeight, {
-        toValue: HEADER_KEYBOARD,
-        duration: 250,
-        useNativeDriver: false,
-      }).start();
+  useEffect(() => {
+    mountedRef.current = true;
+    if (Platform.OS !== 'android') {
+      return () => {
+        mountedRef.current = false;
+      };
+    }
+
+    const showSub = Keyboard.addListener('keyboardDidShow', (event) => {
+      keyboardOpenRef.current = true;
+      const baselineBottom = baselineBottomRef.current;
+      if (baselineBottom == null) return;
+      const keyboardTop = event.endCoordinates.screenY;
+      const nextPadding = Math.max(baselineBottom - keyboardTop, 0);
+      basePaddingRef.current = nextPadding;
+      passwordExtraRef.current = 0;
+      paddingRef.current = nextPadding;
+      setKeyboardPadding(nextPadding);
     });
     const hideSub = Keyboard.addListener('keyboardDidHide', () => {
-      RNAnimated.timing(headerHeight, {
-        toValue: HEADER_MIN,
-        duration: 250,
-        useNativeDriver: false,
-      }).start();
+      keyboardOpenRef.current = false;
+      pendingPasswordMeasureRef.current = false;
+      passwordMeasureLockRef.current = false;
+      clearPasswordMeasureTimer();
+      const alreadyClosed = paddingRef.current === 0;
+      basePaddingRef.current = 0;
+      passwordExtraRef.current = 0;
+      paddingRef.current = 0;
+      setKeyboardPadding(0);
+      if (!alreadyClosed) return;
+      requestAnimationFrame(() => {
+        if (!mountedRef.current) return;
+        storeClosedBaseline();
+      });
     });
-    return () => { showSub.remove(); hideSub.remove(); };
+
+    return () => {
+      mountedRef.current = false;
+      showSub.remove();
+      hideSub.remove();
+    };
   }, []);
+
+  useLayoutEffect(() => {
+    if (Platform.OS !== 'android' || keyboardPadding !== 0) return;
+    const frame = requestAnimationFrame(() => {
+      storeClosedBaseline();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [keyboardPadding]);
 
   useEffect(() => {
     if (!isLocked || lockoutSeconds <= 0) return;
@@ -299,17 +453,14 @@ export default function LoginScreen() {
     }
   }
 
-  return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
+  const screen = (
+    <>
       <StatusBar style="light" />
 
       <AuthCacaoFullScreenBackground />
 
       <View style={styles.layout}>
-        <CacaoHeader animatedHeight={headerHeight} />
+        <CacaoHeader />
 
         <View style={styles.cardBleed}>
           <View style={styles.cardShadow}>
@@ -377,7 +528,10 @@ export default function LoginScreen() {
                         setEmail(val);
                         setError(null);
                       }}
-                      onFocus={() => setEmailFocused(true)}
+                      onFocus={() => {
+                        setEmailFocused(true);
+                        restoreBaseKeyboardPadding();
+                      }}
                       onBlur={() => setEmailFocused(false)}
                       autoCapitalize="none"
                       keyboardType="email-address"
@@ -389,6 +543,7 @@ export default function LoginScreen() {
                     />
                   </InputField>
 
+                  <View ref={passwordFieldRef} collapsable={false}>
                   <InputField
                     focused={passwordFocused}
                     icon={<LockIcon size={20} color={passwordFocused ? UI.iconFocus : UI.icon} />}
@@ -420,7 +575,10 @@ export default function LoginScreen() {
                         setPassword(val);
                         setError(null);
                       }}
-                      onFocus={() => setPasswordFocused(true)}
+                      onFocus={() => {
+                        setPasswordFocused(true);
+                        beginPasswordClearance();
+                      }}
                       onBlur={() => setPasswordFocused(false)}
                       secureTextEntry={!showPassword}
                       autoComplete="password"
@@ -429,6 +587,7 @@ export default function LoginScreen() {
                       onSubmitEditing={handleLogin}
                     />
                   </InputField>
+                  </View>
                 </View>
 
                 <TouchableOpacity
@@ -505,7 +664,25 @@ export default function LoginScreen() {
           </View>
         </View>
       </View>
-    </KeyboardAvoidingView>
+    </>
+  );
+
+  if (Platform.OS === 'ios') {
+    return (
+      <KeyboardAvoidingView style={styles.container} behavior="padding">
+        {screen}
+      </KeyboardAvoidingView>
+    );
+  }
+
+  return (
+    <View
+      ref={containerRef}
+      style={[styles.container, { paddingBottom: keyboardPadding }]}
+      onLayout={() => storeClosedBaseline()}
+    >
+      {screen}
+    </View>
   );
 }
 

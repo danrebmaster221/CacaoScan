@@ -17,7 +17,7 @@
  * and automated login attempt sequences.
  */
 
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { Alert, Platform } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
@@ -36,6 +36,14 @@ import {
 
 type UserRole = 'farmer' | 'admin';
 
+export type ProfilePhase =
+  | 'signedOut'
+  | 'restoring'
+  | 'loadingProfile'
+  | 'ready'
+  | 'incomplete'
+  | 'profileError';
+
 export interface UserProfile {
   role: UserRole;
   first_name: string | null;
@@ -48,7 +56,9 @@ interface AuthContextType {
   user: User | null;
   userRole: UserRole;
   userProfile: UserProfile | null;
+  profilePhase: ProfilePhase;
   isLoading: boolean;
+  refreshProfile: () => Promise<ProfilePhase>;
   /** Whether the user has passed password auth but still needs OTP */
   pendingMFA: boolean;
   /** Email of the user pending MFA verification */
@@ -74,37 +84,115 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [userRole, setUserRole] = useState<UserRole>('farmer');
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [profilePhase, setProfilePhase] = useState<ProfilePhase>('restoring');
+  const profileSeq = useRef(0);
+  const isLoading = profilePhase === 'restoring' || profilePhase === 'loadingProfile';
   const [pendingMFA, setPendingMFA] = useState(false);
   const [pendingMFAEmail, setPendingMFAEmail] = useState<string | null>(null);
 
-  useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchUserRole(session.user.id);
+  const clearAuthMemory = useCallback(() => {
+    profileSeq.current += 1;
+    setSession(null);
+    setUser(null);
+    setUserProfile(null);
+    setUserRole('farmer');
+    setPendingMFA(false);
+    setPendingMFAEmail(null);
+    setProfilePhase('signedOut');
+  }, []);
+
+  const refreshProfile = useCallback(async (): Promise<ProfilePhase> => {
+    const {
+      data: { session: current },
+    } = await supabase.auth.getSession();
+    const userId = current?.user?.id;
+    if (!userId) {
+      clearAuthMemory();
+      return 'signedOut';
+    }
+
+    const seq = ++profileSeq.current;
+    setProfilePhase('loadingProfile');
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('role, first_name, last_name, farm_location')
+        .eq('id', userId)
+        .single();
+
+      if (seq !== profileSeq.current) return 'loadingProfile';
+
+      if (error) {
+        setUserProfile(null);
+        setUserRole('farmer');
+        const next: ProfilePhase = error.code === 'PGRST116' ? 'incomplete' : 'profileError';
+        setProfilePhase(next);
+        return next;
       }
-      setIsLoading(false);
+
+      const firstName = typeof data?.first_name === 'string' ? data.first_name.trim() : '';
+      const lastName = typeof data?.last_name === 'string' ? data.last_name.trim() : '';
+      const farmLocation = typeof data?.farm_location === 'string' ? data.farm_location.trim() : '';
+      const role: UserRole = data?.role === 'admin' || data?.role === 'farmer' ? data.role : 'farmer';
+
+      if (!firstName || !lastName || !farmLocation) {
+        setUserProfile(null);
+        setUserRole(role);
+        setProfilePhase('incomplete');
+        return 'incomplete';
+      }
+
+      setUserRole(role);
+      setUserProfile({
+        role,
+        first_name: firstName,
+        last_name: lastName,
+        farm_location: farmLocation,
+      });
+      setProfilePhase('ready');
+      return 'ready';
+    } catch {
+      if (seq !== profileSeq.current) return 'loadingProfile';
+      setUserProfile(null);
+      setUserRole('farmer');
+      setProfilePhase('profileError');
+      return 'profileError';
+    }
+  }, [clearAuthMemory]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    supabase.auth.getSession().then(async ({ data: { session: restored } }) => {
+      if (cancelled) return;
+      setSession(restored);
+      setUser(restored?.user ?? null);
+      if (!restored?.user) {
+        clearAuthMemory();
+        return;
+      }
+      await refreshProfile();
     });
 
-    // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          await fetchUserRole(session.user.id);
-          await updateLastActive();
-        } else {
-          setUserRole('farmer');
+      async (event, nextSession) => {
+        if (cancelled) return;
+        setSession(nextSession);
+        setUser(nextSession?.user ?? null);
+        if (event === 'SIGNED_OUT' || !nextSession?.user) {
+          clearAuthMemory();
+          return;
         }
+        await updateLastActive();
+        await refreshProfile();
       }
     );
 
-    return () => subscription.unsubscribe();
-  }, []);
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
+  }, [clearAuthMemory, refreshProfile]);
 
   // Control #9: Session timeout listener
   useEffect(() => {
@@ -122,54 +210,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return cleanup;
   }, [session, user]);
-
-  async function fetchUserRole(userId: string) {
-    try {
-      // Names may still come from metadata. Role never does.
-      const { data: { user: freshUser } } = await supabase.auth.getUser();
-      const meta = freshUser?.user_metadata;
-
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('role, first_name, last_name, farm_location')
-        .eq('id', userId)
-        .single();
-
-      const trustedRole: UserRole =
-        !error && (data?.role === 'admin' || data?.role === 'farmer')
-          ? data.role
-          : 'farmer';
-
-      if (meta?.first_name && meta?.last_name && meta?.farm_location) {
-        setUserRole(trustedRole);
-        setUserProfile({
-          role: trustedRole,
-          first_name: meta.first_name,
-          last_name: meta.last_name,
-          farm_location: meta.farm_location,
-        });
-        return;
-      }
-
-      if (!error && data?.first_name) {
-        setUserRole(trustedRole);
-        setUserProfile({
-          role: trustedRole,
-          first_name: data.first_name,
-          last_name: data.last_name,
-          farm_location: data.farm_location,
-        });
-        return;
-      }
-
-      console.warn('No profile data found in metadata or profiles table.');
-      setUserRole('farmer');
-      setUserProfile(null);
-    } catch {
-      setUserRole('farmer');
-      setUserProfile(null);
-    }
-  }
 
   /**
    * Control #7: Log audit event to Supabase
@@ -489,21 +529,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      // FALLBACK: Also try to upsert to profiles table (may silently fail due to RLS)
-      try {
-        await supabase.from('profiles').upsert({
-          id: userId,
-          role: 'farmer',
-          first_name: firstName,
-          last_name: lastName,
-          farm_location: farmLocation,
-        }, { onConflict: 'id' });
-      } catch {
-        // Silently ignore — user_metadata is the primary source
-      }
+      const { error: profileError } = await supabase.from('profiles').upsert({
+        id: userId,
+        role: 'farmer',
+        first_name: firstName,
+        last_name: lastName,
+        farm_location: farmLocation,
+      }, { onConflict: 'id' });
+      if (profileError) return { error: profileError.message };
 
-      // Refresh profile state from the newly updated metadata
-      await fetchUserRole(userId);
       return { error: null };
 
     } catch {
@@ -533,12 +567,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   async function signOut() {
-    setPendingMFA(false);
-    setPendingMFAEmail(null);
     const { error } = await supabase.auth.signOut({ scope: 'local' });
     if (error) {
       throw error;
     }
+    clearAuthMemory();
   }
 
   return (
@@ -548,7 +581,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         userRole,
         userProfile,
+        profilePhase,
         isLoading,
+        refreshProfile,
         pendingMFA,
         pendingMFAEmail,
         signIn,
