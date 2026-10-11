@@ -185,17 +185,28 @@ app = Flask(__name__)
 print("[INIT] Loading CacaoScan AI Brain (best.pt)...")
 model = YOLO('best.pt')
 
-# 0 = laptop webcam, 1 = usually USB OV camera (try 2 if still wrong)
-CAMERA_INDEX = 1
+_camera_index_raw = os.getenv("CACAO_CAMERA_INDEX", "0").strip()
+try:
+    CAMERA_INDEX = int(_camera_index_raw)
+except ValueError:
+    print(f"[CAMERA] CACAO_CAMERA_INDEX={_camera_index_raw} is not an integer.", file=sys.stderr)
+    raise SystemExit(1)
+
+print(f"[CAMERA] Source index: {CAMERA_INDEX}")
 cap = cv2.VideoCapture(CAMERA_INDEX, cv2.CAP_DSHOW)
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 640)
 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+camera_opened = cap.isOpened()
+print(f"[CAMERA] Opened: {'YES' if camera_opened else 'NO'}")
+if not camera_opened:
+    print("[CAMERA] Camera unavailable.", file=sys.stderr)
+    raise SystemExit(1)
 
 latest_raw_frame = None
 latest_display_frame = None
 frame_lock = threading.Lock()
-current_classification = "EMPTY"
+inference_lock = threading.Lock()
 
 EVENT_BUFFER_LIMIT = 50
 stream_id = secrets.token_hex(8)
@@ -203,18 +214,88 @@ event_counter = 0
 event_buffer = []
 event_lock = threading.Lock()
 
-def record_classification_event(classification):
+def record_classification_event(classification, bean_id=None):
     global event_counter
     if classification == "EMPTY":
         return
+    event = {
+        "event_id": None,
+        "operational_class": classification,
+    }
+    if bean_id is not None:
+        event["bean_id"] = bean_id
+        event["stage"] = "classified"
     with event_lock:
         event_counter += 1
-        event_buffer.append({
-            "event_id": event_counter,
-            "operational_class": classification,
-        })
+        event["event_id"] = event_counter
+        event_buffer.append(event)
         if len(event_buffer) > EVENT_BUFFER_LIMIT:
             del event_buffer[:-EVENT_BUFFER_LIMIT]
+
+def classify_frame(frame):
+    with inference_lock:
+        results = model.predict(frame, imgsz=640, conf=0.40, verbose=False)[0]
+
+    boxes = []
+    for box in results.boxes:
+        label_name = results.names[int(box.cls[0].item())]
+        conf = float(box.conf[0].item())
+        x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+        boxes.append((label_name, conf, x1, y1, x2, y2))
+
+    labels = [item[0] for item in boxes]
+    selected_index = None
+    if "Rejected" in labels:
+        selected_index = labels.index("Rejected")
+    elif "Needs_Drying" in labels:
+        selected_index = labels.index("Needs_Drying")
+    elif boxes:
+        selected_index = 0
+
+    if selected_index is None:
+        operational_class = "EMPTY"
+        confidence = 0.0
+    else:
+        operational_class = boxes[selected_index][0]
+        confidence = boxes[selected_index][1]
+
+    annotated = frame.copy()
+    for label_name, conf, x1, y1, x2, y2 in boxes:
+        if label_name == "Rejected":
+            color = (0, 0, 255)
+        elif label_name == "Needs_Drying":
+            color = (0, 255, 255)
+        else:
+            color = (0, 255, 0)
+        cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
+        tag = f"{label_name} {conf*100:.1f}%"
+        (w_text, _h_text), _ = cv2.getTextSize(tag, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+        cv2.rectangle(annotated, (x1, y1 - 20), (x1 + w_text + 4, y1), color, -1)
+        cv2.putText(annotated, tag, (x1 + 2, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
+    cv2.putText(
+        annotated,
+        f"LIVE DETECTIONS: {len(boxes)} BEANS | SORT: {operational_class}",
+        (15, 25),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.55,
+        (255, 255, 255),
+        2,
+    )
+    return operational_class, confidence, annotated
+
+def copy_latest_frame():
+    with frame_lock:
+        if latest_raw_frame is None:
+            return None
+        return latest_raw_frame.copy()
+
+def parse_bean_id(raw):
+    text = (raw or "").strip()
+    if text == "":
+        return None
+    if not text.isdigit() or len(text) > 10:
+        return False
+    return int(text)
 
 @app.route('/health', methods=['GET'])
 def health():
@@ -222,14 +303,30 @@ def health():
 
 @app.route('/trigger', methods=['GET'])
 def trigger_ai():
-    global current_classification
     requested_id = (request.args.get("machine_id") or "").strip()
     if requested_id != MACHINE_ID:
         return "machine_id mismatch", 403
-    classification = current_classification
-    print(f"\n[SIGNAL] ESP32 Scan Request -> Returning: {classification}")
-    record_classification_event(classification)
-    return classification
+
+    bean_id = parse_bean_id(request.args.get("bean_id"))
+    if bean_id is False:
+        return "invalid bean_id", 400
+
+    frame = copy_latest_frame()
+    if frame is None:
+        if bean_id is None:
+            return "camera frame unavailable", 503
+        return jsonify({"error": "camera frame unavailable"}), 503
+
+    operational_class, confidence, _annotated = classify_frame(frame)
+    print(f"\n[SIGNAL] ESP32 Scan Request -> Returning: {operational_class}")
+    record_classification_event(operational_class, bean_id)
+    if bean_id is None:
+        return operational_class
+    return jsonify({
+        "bean_id": bean_id,
+        "operational_class": operational_class,
+        "confidence": confidence,
+    })
 
 @app.route('/events', methods=['GET'])
 def events():
@@ -243,11 +340,18 @@ def events():
     with event_lock:
         latest_event_id = event_counter
         current_stream = stream_id
-        events_after = [
-            {"event_id": event["event_id"], "operational_class": event["operational_class"]}
-            for event in event_buffer
-            if event["event_id"] > after
-        ]
+        events_after = []
+        for event in event_buffer:
+            if event["event_id"] <= after:
+                continue
+            item = {
+                "event_id": event["event_id"],
+                "operational_class": event["operational_class"],
+            }
+            if "bean_id" in event:
+                item["bean_id"] = event["bean_id"]
+                item["stage"] = event["stage"]
+            events_after.append(item)
     return jsonify({
         "machine_id": MACHINE_ID,
         "stream_id": current_stream,
@@ -258,10 +362,11 @@ def events():
 def generate_mjpeg():
     while True:
         with frame_lock:
-            if latest_display_frame is None:
-                time.sleep(0.03)
-                continue
-            ret, jpeg = cv2.imencode('.jpg', latest_display_frame)
+            snapshot = None if latest_display_frame is None else latest_display_frame.copy()
+        if snapshot is None:
+            time.sleep(0.03)
+            continue
+        ret, jpeg = cv2.imencode('.jpg', snapshot)
         if ret:
             yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
         time.sleep(0.04)
@@ -269,6 +374,16 @@ def generate_mjpeg():
 @app.route('/video_feed', methods=['GET'])
 def video_feed():
     return Response(generate_mjpeg(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@app.route('/vision/frame', methods=['GET'])
+def vision_frame():
+    snapshot = copy_latest_frame()
+    if snapshot is None:
+        return "camera frame unavailable", 503
+    ok, jpeg = cv2.imencode('.jpg', snapshot)
+    if not ok:
+        return "jpeg encode failed", 500
+    return Response(jpeg.tobytes(), mimetype='image/jpeg')
 
 def start_flask():
     app.run(host='0.0.0.0', port=5000, debug=False, threaded=True, use_reloader=False)
@@ -283,60 +398,12 @@ while True:
         time.sleep(0.05)
         continue
 
+    preview = frame.copy()
     with frame_lock:
-        latest_raw_frame = frame.copy()
+        latest_raw_frame = preview
+        latest_display_frame = preview
 
-    # Run YOLOv8 detection on the live frame
-    results = model.predict(frame, imgsz=640, conf=0.40, verbose=False)[0]
-    display_frame = frame.copy()
-
-    detected_labels = []
-
-    # Draw bounding boxes for EVERY detected bean
-    for box in results.boxes:
-        cls_id = int(box.cls[0].item())
-        label_name = results.names[cls_id]
-        conf = float(box.conf[0].item())
-        detected_labels.append(label_name)
-
-        # Coordinates
-        x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-
-        # Colors: Red for Rejected, Yellow for Drying, Green for Varieties
-        if label_name == "Rejected":
-            color = (0, 0, 255)
-        elif label_name == "Needs_Drying":
-            color = (0, 255, 255)
-        else:
-            color = (0, 255, 0)
-
-        # Draw Bounding Box around the bean
-        cv2.rectangle(display_frame, (x1, y1), (x2, y2), color, 2)
-
-        # Draw Label Tag with confidence
-        tag = f"{label_name} {conf*100:.1f}%"
-        (w_text, h_text), _ = cv2.getTextSize(tag, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-        cv2.rectangle(display_frame, (x1, y1 - 20), (x1 + w_text + 4, y1), color, -1)
-        cv2.putText(display_frame, tag, (x1 + 2, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
-
-    # Determine overall decision for ESP32 (Quality-First)
-    if "Rejected" in detected_labels:
-        current_classification = "Rejected"
-    elif "Needs_Drying" in detected_labels:
-        current_classification = "Needs_Drying"
-    elif len(detected_labels) > 0:
-        current_classification = detected_labels[0]
-    else:
-        current_classification = "EMPTY"
-
-    # Status Banner
-    cv2.putText(display_frame, f"LIVE DETECTIONS: {len(results.boxes)} BEANS | SORT: {current_classification}",
-                (15, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
-
-    with frame_lock:
-        latest_display_frame = display_frame.copy()
-
-    cv2.imshow("CacaoScan - Multi-Bean Vision Feed", display_frame)
+    cv2.imshow("CacaoScan - Multi-Bean Vision Feed", preview)
     if (cv2.waitKey(1) & 0xFF) == ord('q'):
         break
 
