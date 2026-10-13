@@ -18,7 +18,6 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useESP32Connection } from '@/hooks/use-esp32-connection';
-import { promptConnectScanner } from '@/context/ESP32Context';
 
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
@@ -192,7 +191,7 @@ export default function SettingsScreen() {
   const theme = Colors[colorScheme];
   const { user, userRole, signOut } = useAuth();
   const { themeMode, setThemeMode } = useTheme();
-  const { isConnected, isConnecting, serverHost, connect, enableDemoMode } = useESP32Connection();
+  const { isConnected } = useESP32Connection();
   const router = useRouter();
   const [showSignOutModal, setShowSignOutModal] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
@@ -259,18 +258,9 @@ export default function SettingsScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.connLabel}>Paired Machine</Text>
             <Text style={{ color: online ? theme.success : theme.danger, fontFamily: Typography.fontFamily.bold, fontSize: 15 }}>
-              {online ? 'Connected · Idle' : 'Offline'}
+              {online ? 'Online' : 'Offline'}
             </Text>
           </View>
-          {!online && (
-            <TouchableOpacity
-              style={styles.connBtn}
-              onPress={() => promptConnectScanner(connect, enableDemoMode, serverHost)}
-              disabled={isConnecting}
-            >
-              <Text style={styles.connBtnText}>{isConnecting ? '…' : 'Connect'}</Text>
-            </TouchableOpacity>
-          )}
         </View>
 
         <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>ACCOUNT & ONBOARDING</Text>
@@ -296,7 +286,7 @@ export default function SettingsScreen() {
           <SettingsItem
             icon="hardware-chip-outline"
             label="Hardware Monitor"
-            subtitle={online ? 'Online · edge telemetry' : 'Offline · unreachable'}
+            subtitle={online ? 'Scanner connected' : 'Scanner offline'}
             onPress={() => router.push('/settings/hardware' as any)}
             theme={theme}
           />
@@ -418,13 +408,6 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
-  connBtn: {
-    backgroundColor: Palette.chocolate,
-    borderRadius: 999,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  connBtnText: { color: '#fff', fontFamily: Typography.fontFamily.bold, fontSize: 13 },
   avatar: {
     width: 56,
     height: 56,

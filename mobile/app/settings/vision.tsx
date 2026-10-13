@@ -5,7 +5,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Image,
 } from 'react-native';
 import { Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -13,8 +12,6 @@ import { Colors, Typography, Spacing, Radius, Palette } from '@/constants/theme'
 import { supabase } from '@/services/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { StickyHeader, Card, BrownButton } from '@/components/redesign/ui';
-
-const ESP32_DEFAULT_IP = '192.168.4.1';
 
 interface ROIBox {
   x: number;
@@ -36,50 +33,10 @@ const SCALE_STEP = 10;
 export default function VisionCalibrationScreen() {
   const theme = Colors.light;
   const { user } = useAuth();
-  const [connected, setConnected] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [frameUri, setFrameUri] = useState<string | null>(null);
   const [rois, setRois] = useState<ROIBox[]>(DEFAULT_ROIS);
   const [selectedPocket, setSelectedPocket] = useState(0);
-  const [status, setStatus] = useState('Not connected to scanner.');
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
-
-  const handleConnect = async () => {
-    setLoading(true);
-    setStatus('Connecting...');
-    try {
-      const res = await fetch(`http://${ESP32_DEFAULT_IP}/capture`, {
-        signal: AbortSignal.timeout(5000),
-      });
-      if (res.ok) {
-        const blob = await res.blob();
-        setFrameUri(URL.createObjectURL(blob));
-        setConnected(true);
-        setStatus('Connected — Frame captured');
-      } else {
-        setStatus('Connection failed.');
-      }
-    } catch {
-      setStatus('Could not reach scanner. Connect to CacaoScan-AP Wi-Fi.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleRefreshFrame = async () => {
-    try {
-      const res = await fetch(`http://${ESP32_DEFAULT_IP}/capture`, {
-        signal: AbortSignal.timeout(5000),
-      });
-      if (res.ok) {
-        const blob = await res.blob();
-        setFrameUri(URL.createObjectURL(blob));
-      }
-    } catch {
-      // keep existing frame
-    }
-  };
 
   const nudge = (dir: 'up' | 'down' | 'left' | 'right') => {
     setRois((prev) => {
@@ -135,40 +92,22 @@ export default function VisionCalibrationScreen() {
 
       <Card style={styles.card}>
         <View style={styles.statusRow}>
-          <Ionicons
-            name={connected ? 'checkmark-circle' : 'alert-circle'}
-            size={22}
-            color={connected ? theme.success : theme.warning}
-          />
-          <Text style={[styles.statusText, { color: theme.text }]}>{status}</Text>
+          <Ionicons name="videocam-outline" size={22} color={theme.textSecondary} />
+          <Text style={[styles.statusText, { color: theme.text }]}>
+            The OV3660 preview is on the AI Vision tab. This screen does not open a second camera.
+          </Text>
         </View>
-        {!connected && (
-          <BrownButton
-            title={loading ? 'Connecting…' : 'Connect & Capture Frame'}
-            onPress={handleConnect}
-            disabled={loading}
-          />
-        )}
       </Card>
 
       <Card style={styles.card}>
         <View style={styles.cardHeader}>
-          <Text style={styles.cardTitle}>Camera Frame</Text>
-          {connected && (
-            <TouchableOpacity onPress={handleRefreshFrame}>
-              <Ionicons name="refresh-outline" size={20} color={Palette.chocolate} />
-            </TouchableOpacity>
-          )}
+          <Text style={styles.cardTitle}>Pocket guides</Text>
         </View>
         <View style={styles.previewBox}>
-          {frameUri ? (
-            <Image source={{ uri: frameUri }} style={styles.frameImage} resizeMode="cover" />
-          ) : (
-            <View style={styles.previewEmpty}>
-              <Ionicons name="camera-outline" size={32} color="#c9b3a4" />
-              <Text style={styles.previewEmptyText}>No camera frame yet</Text>
-            </View>
-          )}
+          <View style={styles.previewEmpty}>
+            <Ionicons name="camera-outline" size={32} color="#c9b3a4" />
+            <Text style={styles.previewEmptyText}>No local capture on this screen</Text>
+          </View>
           {rois.map((roi, i) => (
             <View
               key={i}
@@ -286,7 +225,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#241812',
     position: 'relative',
   },
-  frameImage: { width: '100%', height: '100%' },
   previewEmpty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
   previewEmptyText: { color: '#bda99b', fontSize: 13, fontFamily: Typography.fontFamily.medium },
   roiBox: {

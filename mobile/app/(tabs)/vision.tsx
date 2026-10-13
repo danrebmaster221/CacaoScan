@@ -1,41 +1,50 @@
-import React from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
-  Image,
-  Switch,
-  TouchableOpacity,
+  AppState,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Animated, { FadeInDown, useSharedValue, useAnimatedStyle, withRepeat, withSequence, withTiming, Easing } from 'react-native-reanimated';
-import { Colors, Typography, Spacing, Radius, Shadows, Palette, ClassColors } from '@/constants/theme';
+import { useFocusEffect } from 'expo-router';
+import Animated, { FadeInDown } from 'react-native-reanimated';
+import { Colors, Typography, Spacing, Radius, Shadows, ClassColors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useESP32Connection, ClassResult } from '@/hooks/use-esp32-connection';
-import { promptConnectScanner } from '@/context/ESP32Context';
 import { useBatchController } from '@/hooks/use-batch-controller';
-import { isExportClass, labelForClass } from '@/utils/classification';
+import {
+  derivedGradeForClass,
+  gateForClass,
+  labelForClass,
+  OPERATIONAL_CLASSES,
+  type OperationalClass,
+} from '@/utils/classification';
 
-function BlinkingLiveIndicator() {
-  const opacity = useSharedValue(1);
-  React.useEffect(() => {
-    opacity.value = withRepeat(
-      withSequence(
-        withTiming(0.2, { duration: 700, easing: Easing.linear }),
-        withTiming(1, { duration: 700, easing: Easing.linear })
-      ),
-      -1,
-      true
-    );
-  }, []);
-  const animatedStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
-  return (
-    <View style={styles.liveBadge}>
-      <Animated.View style={[styles.liveDot, animatedStyle]} />
-      <Text style={styles.liveBadgeText}>LIVE</Text>
-    </View>
-  );
+const FRAME_INTERVAL_MS = 1000;
+const FRAME_TIMEOUT_MS = 2000;
+const FLASH_MS = 1500;
+
+type DetectionMeta = {
+  version: number;
+  bean_id: number | null;
+  operational_class: string;
+  confidence: number | null;
+  has_annotated_frame: boolean;
+};
+
+function isOperationalClass(value: string): value is OperationalClass {
+  return (OPERATIONAL_CLASSES as readonly string[]).includes(value);
+}
+
+function encodeBase64(bytes: Uint8Array): string {
+  const chunkSize = 0x8000;
+  let binary = '';
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+  return globalThis.btoa(binary);
 }
 
 function RecentItem({ result, theme }: { result: ClassResult; theme: typeof Colors.light }) {
@@ -62,18 +71,186 @@ export default function VisionScreen() {
   const { activeBatch } = useBatchController();
   const {
     isConnected,
-    isConnecting,
     serverHost,
-    connect,
-    enableDemoMode,
-    currentClassification,
     recentClassifications,
   } = useESP32Connection(activeBatch?.id);
-  const [showBoxes, setShowBoxes] = React.useState(true);
+  const [shownUri, setShownUri] = useState<string | null>(null);
+  const [cameraPhase, setCameraPhase] = useState<'online' | 'stalled' | 'unavailable'>('unavailable');
+  const [detection, setDetection] = useState<DetectionMeta | null>(null);
+  const [annotatedUri, setAnnotatedUri] = useState<string | null>(null);
+  const [flashUri, setFlashUri] = useState<string | null>(null);
+  const shownRef = useRef(false);
+  const shownVersionRef = useRef<number | null>(null);
+  const baselineReadyRef = useRef(false);
+  const hostSeenRef = useRef(serverHost);
+  const flashTokenRef = useRef(0);
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const focusedRef = useRef(false);
+  const inFlightRef = useRef(false);
+  const generationRef = useRef(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const clearFlash = useCallback(() => {
+    flashTokenRef.current += 1;
+    if (flashTimerRef.current != null) {
+      clearTimeout(flashTimerRef.current);
+      flashTimerRef.current = null;
+    }
+    setFlashUri(null);
+  }, []);
+
+  const startFlash = useCallback((uri: string) => {
+    flashTokenRef.current += 1;
+    const token = flashTokenRef.current;
+    if (flashTimerRef.current != null) clearTimeout(flashTimerRef.current);
+    setFlashUri(uri);
+    flashTimerRef.current = setTimeout(() => {
+      if (flashTokenRef.current !== token) return;
+      flashTimerRef.current = null;
+      setFlashUri(null);
+    }, FLASH_MS);
+  }, []);
+
+  const stopFrameTimer = useCallback(() => {
+    generationRef.current += 1;
+    if (timerRef.current != null) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    abortRef.current?.abort();
+    abortRef.current = null;
+    inFlightRef.current = false;
+    clearFlash();
+  }, [clearFlash]);
+
+  const startFrameTimer = useCallback(() => {
+    stopFrameTimer();
+    if (hostSeenRef.current !== serverHost) {
+      hostSeenRef.current = serverHost;
+      shownVersionRef.current = null;
+      setDetection(null);
+      setAnnotatedUri(null);
+    }
+    baselineReadyRef.current = false;
+    if (!focusedRef.current || AppState.currentState !== 'active') return;
+    const host = serverHost.trim();
+    const generation = generationRef.current;
+    if (!host) {
+      setCameraPhase(shownRef.current ? 'stalled' : 'unavailable');
+      return;
+    }
+    const tick = async () => {
+      if (generation !== generationRef.current || inFlightRef.current) return;
+      inFlightRef.current = true;
+      const controller = new AbortController();
+      abortRef.current = controller;
+      const timeout = setTimeout(() => controller.abort(), FRAME_TIMEOUT_MS);
+      try {
+        try {
+          const response = await fetch(`http://${host}:5000/vision/frame?t=${Date.now()}`, {
+            signal: controller.signal,
+          });
+          if (generation !== generationRef.current) return;
+          if (!response.ok) throw new Error('frame');
+          const bytes = new Uint8Array(await response.arrayBuffer());
+          if (generation !== generationRef.current) return;
+          shownRef.current = true;
+          setShownUri(`data:image/jpeg;base64,${encodeBase64(bytes)}`);
+          setCameraPhase('online');
+        } catch {
+          if (generation !== generationRef.current || !focusedRef.current) return;
+          setCameraPhase(shownRef.current ? 'stalled' : 'unavailable');
+        }
+
+        if (generation !== generationRef.current || controller.signal.aborted) return;
+
+        const metaResponse = await fetch(`http://${host}:5000/vision/last-classification?t=${Date.now()}`, {
+          signal: controller.signal,
+        });
+        if (generation !== generationRef.current) return;
+        if (metaResponse.status === 404) {
+          baselineReadyRef.current = true;
+          shownVersionRef.current = null;
+          setDetection(null);
+          setAnnotatedUri(null);
+          clearFlash();
+          return;
+        }
+        if (!metaResponse.ok) return;
+        const meta = (await metaResponse.json()) as DetectionMeta;
+        if (generation !== generationRef.current) return;
+        if (meta.operational_class === 'EMPTY' || !meta.has_annotated_frame) {
+          baselineReadyRef.current = true;
+          shownVersionRef.current = meta.version;
+          setDetection(null);
+          setAnnotatedUri(null);
+          clearFlash();
+          return;
+        }
+        if (shownVersionRef.current === meta.version) {
+          baselineReadyRef.current = true;
+          return;
+        }
+        const imageResponse = await fetch(
+          `http://${host}:5000/vision/annotated?version=${meta.version}`,
+          { signal: controller.signal },
+        );
+        if (generation !== generationRef.current) return;
+        if (imageResponse.status === 404) return;
+        if (!imageResponse.ok) return;
+        const imageBytes = new Uint8Array(await imageResponse.arrayBuffer());
+        if (generation !== generationRef.current) return;
+        const allowFlash = baselineReadyRef.current;
+        const annotated = `data:image/jpeg;base64,${encodeBase64(imageBytes)}`;
+        shownVersionRef.current = meta.version;
+        baselineReadyRef.current = true;
+        setDetection(meta);
+        setAnnotatedUri(annotated);
+        if (allowFlash) startFlash(annotated);
+      } catch {
+        if (generation !== generationRef.current || !focusedRef.current) return;
+      } finally {
+        clearTimeout(timeout);
+        if (generation === generationRef.current) {
+          if (abortRef.current === controller) abortRef.current = null;
+          inFlightRef.current = false;
+        }
+      }
+    };
+    void tick();
+    timerRef.current = setInterval(() => {
+      void tick();
+    }, FRAME_INTERVAL_MS);
+  }, [serverHost, stopFrameTimer, clearFlash, startFlash]);
+
+  useFocusEffect(
+    useCallback(() => {
+      focusedRef.current = true;
+      startFrameTimer();
+      return () => {
+        focusedRef.current = false;
+        stopFrameTimer();
+      };
+    }, [startFrameTimer, stopFrameTimer]),
+  );
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') startFrameTimer();
+      else stopFrameTimer();
+    });
+    return () => {
+      sub.remove();
+      stopFrameTimer();
+    };
+  }, [startFrameTimer, stopFrameTimer]);
 
   const live = isConnected && activeBatch?.status === 'active';
-  const cls = currentClassification?.operationalClass;
-  const classColor = cls ? ClassColors[cls] : theme.textSecondary;
+  const machineLabel = !isConnected ? 'Machine: Offline' : live ? 'Machine: Live' : 'Machine: Standby';
+  const detectionClass = detection && isOperationalClass(detection.operational_class)
+    ? detection.operational_class
+    : null;
 
   const tally = [
     activeBatch?.criollo_count || 0,
@@ -100,134 +277,97 @@ export default function VisionScreen() {
         <View style={styles.header}>
           <View>
             <Text style={[styles.title, { color: theme.text }]}>AI Vision</Text>
-            <Text style={{ color: theme.textSecondary, marginTop: 4 }}>Single-pass YOLOv8n · edge inference</Text>
+            <Text style={{ color: theme.textSecondary, marginTop: 4 }}>OV3660 preview · laptop edge</Text>
           </View>
           <View
             style={[
               styles.pill,
               {
-                backgroundColor: !isConnected ? theme.dangerBg : live ? theme.dangerBg : theme.warningBg,
+                backgroundColor: !isConnected ? theme.dangerBg : live ? theme.successBg : theme.warningBg,
               },
             ]}
           >
             <View
               style={[
                 styles.pillDot,
-                { backgroundColor: !isConnected ? theme.danger : live ? theme.danger : theme.warning },
+                { backgroundColor: !isConnected ? theme.danger : live ? theme.success : theme.warning },
               ]}
             />
             <Text
               style={{
-                color: !isConnected ? theme.danger : live ? theme.danger : theme.warning,
+                color: !isConnected ? theme.danger : live ? theme.success : theme.warning,
                 fontFamily: Typography.fontFamily.semiBold,
                 fontSize: 13,
               }}
             >
-              {!isConnected ? 'Offline' : live ? 'Live' : 'Standby'}
+              {machineLabel}
             </Text>
           </View>
         </View>
 
         <View style={styles.feed}>
-          {live ? (
-            <View style={styles.feedLive}>
-              <Text style={styles.feedHint}>Waiting for camera frames…</Text>
-              <BlinkingLiveIndicator />
-              {showBoxes && currentClassification && (
-                <View style={[styles.bbox, { borderColor: classColor }]}>
-                  <View style={[styles.bboxBadge, { backgroundColor: classColor }]}>
-                    <Text style={styles.bboxBadgeText}>
-                      {labelForClass(currentClassification.operationalClass)}{' '}
-                      {Math.round((currentClassification.confidence || 0) * 100)}%
-                    </Text>
-                  </View>
-                </View>
-              )}
-              <TouchableOpacity style={styles.boxToggle} onPress={() => setShowBoxes((b) => !b)}>
-                <View style={[styles.pillDot, { backgroundColor: showBoxes ? theme.success : Palette.disabled }]} />
-                <Text style={{ color: '#fff', fontSize: 12, fontFamily: Typography.fontFamily.semiBold }}>
-                  Bounding Boxes {showBoxes ? 'On' : 'Off'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
+          {flashUri ? (
+            <Image
+              key={detection?.version ?? 'flash'}
+              source={{ uri: flashUri }}
+              style={StyleSheet.absoluteFill}
+              contentFit="cover"
+              cachePolicy="none"
+            />
+          ) : shownUri ? (
+            <Image
+              source={{ uri: shownUri }}
+              style={StyleSheet.absoluteFill}
+              contentFit="cover"
+              cachePolicy="none"
+            />
+          ) : null}
+          {cameraPhase === 'unavailable' ? (
             <View style={styles.feedEmpty}>
-              <Text style={{ fontSize: 40 }}>📷</Text>
-              <Text style={styles.feedEmptyTitle}>
-                {!isConnected ? 'Camera link down' : 'Standby · model loaded'}
-              </Text>
-              <Text style={styles.feedEmptySub}>
-                {!isConnected
-                  ? `AI Server ${serverHost} unreachable. Connect to view the live feed.`
-                  : 'YOLOv8n is loaded and ready. Start a session to begin live inference.'}
-              </Text>
-              {!isConnected && (
-                <TouchableOpacity
-                  style={styles.connectMachineBtn}
-                  onPress={() => promptConnectScanner(connect, enableDemoMode, serverHost)}
-                  disabled={isConnecting}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.connectMachineText}>
-                    {isConnecting ? 'Connecting…' : 'Connect to Machine'}
-                  </Text>
-                </TouchableOpacity>
-              )}
+              <Text style={styles.feedEmptyTitle}>Camera unavailable</Text>
             </View>
-          )}
+          ) : null}
+          {cameraPhase === 'online' ? (
+            <View style={styles.cameraBadge}>
+              <Text style={styles.cameraBadgeText}>Camera: Online</Text>
+            </View>
+          ) : null}
+          {cameraPhase === 'stalled' ? (
+            <View style={styles.cameraBadge}>
+              <Text style={styles.cameraBadgeText}>Frame stalled</Text>
+            </View>
+          ) : null}
+          {flashUri ? (
+            <View style={styles.detectionBadge}>
+              <Text style={styles.cameraBadgeText}>Detection</Text>
+            </View>
+          ) : null}
         </View>
 
-        {live && currentClassification ? (
-          <View style={styles.detectRow}>
-            <View style={[styles.detectCard, Shadows.sm, { borderColor: theme.border }]}>
-              <Text style={{ color: theme.textSecondary, fontSize: 13, fontFamily: Typography.fontFamily.semiBold }}>
-                Detected Class
-              </Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 }}>
-                <View style={[styles.pillDot, { backgroundColor: classColor }]} />
-                <Text style={{ color: theme.text, fontSize: 20, fontFamily: Typography.fontFamily.bold }}>
-                  {labelForClass(currentClassification.operationalClass)}
-                </Text>
-              </View>
-              <View style={[styles.confTrack, { backgroundColor: Palette.iconBg }]}>
-                <View
-                  style={[
-                    styles.confFill,
-                    {
-                      width: `${Math.round((currentClassification.confidence || 0) * 100)}%`,
-                      backgroundColor: classColor,
-                    },
-                  ]}
-                />
-              </View>
-              <Text style={{ marginTop: 6, color: theme.primary, fontFamily: Typography.fontFamily.semiBold, fontSize: 12 }}>
-                {Math.round((currentClassification.confidence || 0) * 100)}%
-              </Text>
+        {detection && annotatedUri && detectionClass ? (
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>
+            {isConnected ? 'Latest Detection' : 'Last Detection'}
+          </Text>
+        ) : null}
+        {detection && annotatedUri && detectionClass ? (
+          <View>
+            <View style={styles.snapshot}>
+              <Image
+                source={{ uri: annotatedUri }}
+                style={StyleSheet.absoluteFill}
+                contentFit="cover"
+                cachePolicy="none"
+              />
             </View>
-            <View style={[styles.detectCard, Shadows.sm, { borderColor: theme.border }]}>
-              <Text style={{ color: theme.textSecondary, fontSize: 13, fontFamily: Typography.fontFamily.semiBold }}>
-                Target Gate
-              </Text>
-              <Text style={{ color: theme.text, fontSize: 20, fontFamily: Typography.fontFamily.bold, marginTop: 8 }}>
-                Gate {currentClassification.gateActuated}
-              </Text>
-              <View style={[styles.gradePill, { backgroundColor: isExportClass(currentClassification.operationalClass) ? theme.successBg : theme.warningBg }]}>
-                <Text
-                  style={{
-                    color: isExportClass(currentClassification.operationalClass) ? theme.success : theme.warning,
-                    fontFamily: Typography.fontFamily.bold,
-                    fontSize: 13,
-                  }}
-                >
-                  {currentClassification.derivedGrade}
-                </Text>
-              </View>
-            </View>
+            <Text style={{ color: theme.textSecondary, marginTop: 8, fontFamily: Typography.fontFamily.semiBold }}>
+              {detection.bean_id != null ? `Bean #${detection.bean_id} · ` : ''}
+              Gate {gateForClass(detectionClass)} · {derivedGradeForClass(detectionClass)}
+            </Text>
           </View>
         ) : (
           <View style={[styles.emptyDetect, Shadows.sm, { borderColor: theme.border }]}>
             <Text style={{ color: theme.textSecondary, textAlign: 'center', lineHeight: 22 }}>
-              No active detection. Start a sorting session to see live class and gate results.
+              No active detection
             </Text>
           </View>
         )}
@@ -278,6 +418,12 @@ const styles = StyleSheet.create({
   title: { fontSize: 26, fontFamily: Typography.fontFamily.bold },
   pill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, marginTop: 6 },
   pillDot: { width: 8, height: 8, borderRadius: 4 },
+  snapshot: {
+    height: 220,
+    borderRadius: Radius.lg,
+    overflow: 'hidden',
+    backgroundColor: '#241812',
+  },
   feed: {
     marginTop: Spacing.md,
     height: 260,
@@ -285,50 +431,25 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: '#241812',
   },
-  feedLive: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  feedHint: { color: '#FFF8F0', fontFamily: Typography.fontFamily.medium },
   feedEmpty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: Spacing.lg },
-  feedEmptyTitle: { color: '#fff', fontSize: 18, fontFamily: Typography.fontFamily.bold, marginTop: 12 },
-  feedEmptySub: { color: '#bda99b', textAlign: 'center', marginTop: 8, lineHeight: 20, fontSize: 14 },
-  connectMachineBtn: {
-    marginTop: 16,
-    backgroundColor: '#fff',
-    borderRadius: 999,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-  },
-  connectMachineText: {
-    color: Palette.chocolateDeep,
-    fontFamily: Typography.fontFamily.bold,
-    fontSize: 14,
-  },
-  liveBadge: {
+  feedEmptyTitle: { color: '#fff', fontSize: 18, fontFamily: Typography.fontFamily.bold, textAlign: 'center' },
+  cameraBadge: {
     position: 'absolute',
     top: 12,
     left: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
     backgroundColor: 'rgba(0,0,0,0.55)',
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 999,
   },
-  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#ff4d4d' },
-  liveBadgeText: { color: '#fff', fontSize: 10, fontFamily: Typography.fontFamily.bold, letterSpacing: 1 },
-  bbox: { position: 'absolute', top: '28%', left: '28%', width: '44%', height: '48%', borderWidth: 2, borderRadius: 4 },
-  bboxBadge: { position: 'absolute', top: -22, left: 0, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 },
-  bboxBadgeText: { color: '#fff', fontSize: 11, fontFamily: Typography.fontFamily.bold },
-  boxToggle: {
+  cameraBadgeText: { color: '#fff', fontSize: 12, fontFamily: Typography.fontFamily.bold },
+  detectionBadge: {
     position: 'absolute',
-    bottom: 12,
-    left: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
+    top: 12,
+    right: 12,
     backgroundColor: 'rgba(0,0,0,0.55)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     borderRadius: 999,
   },
   detectRow: { flexDirection: 'row', gap: 10, marginTop: Spacing.md },

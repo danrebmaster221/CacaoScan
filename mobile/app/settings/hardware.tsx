@@ -13,20 +13,20 @@ import {
   SectionLabel,
 } from '@/components/redesign/ui';
 
-const STATUS_TITLE: Record<EdgeIdentityStatus, string> = {
-  unknown: 'Connect to Scanner',
-  checking: 'Connecting…',
-  matched: 'Scanner connected',
+const EDGE_STATUS: Record<EdgeIdentityStatus, string> = {
+  unknown: 'Edge unknown',
+  checking: 'Checking edge…',
+  matched: 'Edge verified',
   unpaired: 'No paired machine',
-  mismatch: 'Machine identity mismatch',
-  unreachable: 'Scanner unreachable',
+  mismatch: 'Edge mismatch',
+  unreachable: 'Edge unreachable',
 };
 
 export default function HardwareMonitorScreen() {
   const theme = Colors.light;
   const router = useRouter();
-  const { serverHost, setServerHost, edgeIdentity } = useESP32Connection();
-  const scannerConnected = edgeIdentity === 'matched';
+  const { serverHost, setServerHost, edgeIdentity, isConnected, isConnecting } = useESP32Connection();
+  const machineLabel = isConnecting ? 'Connecting...' : isConnected ? 'Scanner connected' : 'Scanner offline';
   const [hostInput, setHostInput] = useState(serverHost);
   const editingRef = useRef(false);
 
@@ -39,7 +39,7 @@ export default function HardwareMonitorScreen() {
     setHostInput(value);
   };
 
-  const handleConnect = () => {
+  const handleSaveEdgeHost = () => {
     editingRef.current = false;
     setServerHost(hostInput);
   };
@@ -59,7 +59,7 @@ export default function HardwareMonitorScreen() {
     },
     {
       icon: 'wifi-outline' as const,
-      label: scannerConnected ? 'Wi-Fi' : 'Wi-Fi: N/A',
+      label: isConnected ? 'Wi-Fi' : 'Wi-Fi: N/A',
       value: '—',
       tone: Palette.chocolate,
     },
@@ -70,22 +70,22 @@ export default function HardwareMonitorScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <StickyHeader
         title="Hardware Monitor"
-        subtitle="Monitor real-time network latency, connection stability, and system telemetry of the ESP32 scanner."
+        subtitle="Machine connection and laptop edge health. This screen does not start the scanner."
         onBack={() => router.back()}
       />
 
       <View style={styles.body}>
-        {!scannerConnected && edgeIdentity !== 'unknown' && edgeIdentity !== 'checking' && (
-          <OfflineBanner text={STATUS_TITLE[edgeIdentity]} />
+        {!isConnecting && !isConnected && (
+          <OfflineBanner text="Scanner offline" />
         )}
-        <View style={{ marginTop: Spacing.md }}>
-          <BrownButton
-            title={STATUS_TITLE[edgeIdentity]}
-            onPress={handleConnect}
-            disabled={edgeIdentity === 'checking'}
-            icon="power-outline"
-          />
-        </View>
+        <Card style={{ marginTop: Spacing.md }}>
+          <Text style={styles.cardTitle}>Machine</Text>
+          <Text style={[styles.statusValue, { color: isConnected ? theme.success : theme.danger }]}>
+            {machineLabel}
+          </Text>
+          <Text style={[styles.cardTitle, { marginTop: 16 }]}>Edge Server</Text>
+          <Text style={styles.statusValue}>{EDGE_STATUS[edgeIdentity]}</Text>
+        </Card>
 
         <SectionLabel>Latency Metrics</SectionLabel>
         <View style={styles.metricRow}>
@@ -114,7 +114,7 @@ export default function HardwareMonitorScreen() {
             <Text style={styles.cardTitle}>AI Server IP Address</Text>
           </View>
           <Text style={[styles.cardSub, { marginTop: 6 }]}>
-            Shared phone host for the port 8080 scanner and the port 5000 health check. This does not change the ESP32 address, and telemetry is not available from this screen.
+            Laptop address for the edge health check on port 5000. Saving it does not connect the ESP32.
           </Text>
           <FieldInput
             value={hostInput}
@@ -123,7 +123,14 @@ export default function HardwareMonitorScreen() {
             autoCorrect={false}
             style={{ marginTop: 12, fontFamily: Typography.fontFamily.medium }}
           />
-          <Text style={[styles.cardSub, { marginTop: 8 }]}>{STATUS_TITLE[edgeIdentity]}</Text>
+          <View style={{ marginTop: 12 }}>
+            <BrownButton
+              title="Save Edge Host"
+              onPress={handleSaveEdgeHost}
+              disabled={edgeIdentity === 'checking'}
+              icon="save-outline"
+            />
+          </View>
         </Card>
       </View>
     </ScrollView>
@@ -147,6 +154,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   cardTitle: { fontSize: 18, fontFamily: Typography.fontFamily.bold, color: Colors.light.text },
+  statusValue: { marginTop: 4, fontSize: 16, fontFamily: Typography.fontFamily.bold, color: Colors.light.text },
   cardSub: { fontSize: 13, color: Colors.light.textSecondary },
   dashLine: {
     marginVertical: 20,

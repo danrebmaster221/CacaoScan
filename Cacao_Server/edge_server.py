@@ -214,6 +214,14 @@ event_counter = 0
 event_buffer = []
 event_lock = threading.Lock()
 
+COMMAND_ACK_TIMEOUT_S = 8.0
+MOTION_COMMANDS = {"START", "PAUSE", "STOP"}
+command_lock = threading.Lock()
+command_stream_id = secrets.randbits(64)
+next_command_id = 1
+pending_command = None
+print(f"[CMD] command_stream_id={command_stream_id}")
+
 def record_classification_event(classification, bean_id=None):
     global event_counter
     if classification == "EMPTY":
@@ -231,6 +239,90 @@ def record_classification_event(classification, bean_id=None):
         event_buffer.append(event)
         if len(event_buffer) > EVENT_BUFFER_LIMIT:
             del event_buffer[:-EVENT_BUFFER_LIMIT]
+
+def _bgr(hex_color):
+    value = int(hex_color.lstrip("#"), 16)
+    red = (value >> 16) & 255
+    green = (value >> 8) & 255
+    blue = value & 255
+    return (blue, green, red)
+
+CLASS_BGR = {
+    "Criollo": _bgr("#C7FC00"),
+    "Forastero": _bgr("#6BDC2A"),
+    "Needs_Drying": _bgr("#FF8000"),
+    "Rejected": _bgr("#FE0056"),
+    "Trinitario": _bgr("#3BC000"),
+}
+CLASS_TEXT_BGR = {
+    "Criollo": (0, 0, 0),
+    "Forastero": (0, 0, 0),
+    "Needs_Drying": (0, 0, 0),
+    "Rejected": (255, 255, 255),
+    "Trinitario": (0, 0, 0),
+}
+
+def _clamp_box(x1, y1, x2, y2, width, height):
+    left = max(0, min(width - 2, int(x1)))
+    top = max(0, min(height - 2, int(y1)))
+    right = max(left + 2, min(width - 1, int(x2)))
+    bottom = max(top + 2, min(height - 1, int(y2)))
+    return left, top, right, bottom
+
+def _rounded_rect(image, x1, y1, x2, y2, color, thickness, radius, filled=False):
+    radius = max(1, min(int(radius), (x2 - x1) // 2, (y2 - y1) // 2))
+    if filled:
+        cv2.rectangle(image, (x1 + radius, y1), (x2 - radius, y2), color, -1)
+        cv2.rectangle(image, (x1, y1 + radius), (x2, y2 - radius), color, -1)
+        cv2.circle(image, (x1 + radius, y1 + radius), radius, color, -1)
+        cv2.circle(image, (x2 - radius, y1 + radius), radius, color, -1)
+        cv2.circle(image, (x1 + radius, y2 - radius), radius, color, -1)
+        cv2.circle(image, (x2 - radius, y2 - radius), radius, color, -1)
+        return
+    cv2.line(image, (x1 + radius, y1), (x2 - radius, y1), color, thickness)
+    cv2.line(image, (x1 + radius, y2), (x2 - radius, y2), color, thickness)
+    cv2.line(image, (x1, y1 + radius), (x1, y2 - radius), color, thickness)
+    cv2.line(image, (x2, y1 + radius), (x2, y2 - radius), color, thickness)
+    cv2.ellipse(image, (x1 + radius, y1 + radius), (radius, radius), 180, 0, 90, color, thickness)
+    cv2.ellipse(image, (x2 - radius, y1 + radius), (radius, radius), 270, 0, 90, color, thickness)
+    cv2.ellipse(image, (x1 + radius, y2 - radius), (radius, radius), 90, 0, 90, color, thickness)
+    cv2.ellipse(image, (x2 - radius, y2 - radius), (radius, radius), 0, 0, 90, color, thickness)
+
+def _draw_selected_annotation(image, label, confidence, box):
+    height, width = image.shape[:2]
+    x1, y1, x2, y2 = _clamp_box(box[0], box[1], box[2], box[3], width, height)
+    color = CLASS_BGR.get(label, (0, 255, 0))
+    text_color = CLASS_TEXT_BGR.get(label, (0, 0, 0))
+    _rounded_rect(image, x1, y1, x2, y2, color, 2, 8, filled=False)
+
+    tag = f"{label} {confidence * 100:.1f}%"
+    (text_w, text_h), _ = cv2.getTextSize(tag, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+    pad_x = 8
+    pad_y = 5
+    pill_w = min(width, text_w + pad_x * 2)
+    pill_h = min(height, text_h + pad_y * 2)
+    pill_x = x1
+    pill_y = y1 - pill_h
+    if pill_y < 0:
+        pill_y = min(y1, max(0, height - pill_h))
+    if pill_x + pill_w > width:
+        pill_x = max(0, width - pill_w)
+    pill_x = max(0, pill_x)
+    pill_y = max(0, min(pill_y, height - pill_h))
+    _rounded_rect(
+        image,
+        pill_x,
+        pill_y,
+        pill_x + pill_w,
+        pill_y + pill_h,
+        color,
+        1,
+        max(1, pill_h // 2),
+        filled=True,
+    )
+    text_x = min(pill_x + pad_x, width - 1)
+    text_y = min(pill_y + pad_y + text_h, height - 1)
+    cv2.putText(image, tag, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, text_color, 1, cv2.LINE_AA)
 
 def classify_frame(frame):
     with inference_lock:
@@ -253,35 +345,48 @@ def classify_frame(frame):
         selected_index = 0
 
     if selected_index is None:
-        operational_class = "EMPTY"
-        confidence = 0.0
-    else:
-        operational_class = boxes[selected_index][0]
-        confidence = boxes[selected_index][1]
+        return "EMPTY", None, None, None
 
+    label_name, confidence, x1, y1, x2, y2 = boxes[selected_index]
     annotated = frame.copy()
-    for label_name, conf, x1, y1, x2, y2 in boxes:
-        if label_name == "Rejected":
-            color = (0, 0, 255)
-        elif label_name == "Needs_Drying":
-            color = (0, 255, 255)
-        else:
-            color = (0, 255, 0)
-        cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
-        tag = f"{label_name} {conf*100:.1f}%"
-        (w_text, _h_text), _ = cv2.getTextSize(tag, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-        cv2.rectangle(annotated, (x1, y1 - 20), (x1 + w_text + 4, y1), color, -1)
-        cv2.putText(annotated, tag, (x1 + 2, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
-    cv2.putText(
-        annotated,
-        f"LIVE DETECTIONS: {len(boxes)} BEANS | SORT: {operational_class}",
-        (15, 25),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.55,
-        (255, 255, 255),
-        2,
-    )
-    return operational_class, confidence, annotated
+    _draw_selected_annotation(annotated, label_name, confidence, (x1, y1, x2, y2))
+    return label_name, confidence, [x1, y1, x2, y2], annotated
+
+detection_lock = threading.Lock()
+latest_detection = None
+
+def publish_detection(bean_id, operational_class, confidence, bbox, jpeg_bytes):
+    global latest_detection
+    with detection_lock:
+        version = 1 if latest_detection is None else latest_detection["version"] + 1
+        latest_detection = {
+            "version": version,
+            "bean_id": bean_id,
+            "operational_class": operational_class,
+            "confidence": confidence,
+            "bbox": bbox,
+            "jpeg": jpeg_bytes,
+        }
+
+def classification_metadata():
+    with detection_lock:
+        if latest_detection is None:
+            return None
+        item = latest_detection
+        return {
+            "version": item["version"],
+            "bean_id": item["bean_id"],
+            "operational_class": item["operational_class"],
+            "confidence": item["confidence"],
+            "bbox": item["bbox"],
+            "has_annotated_frame": item["jpeg"] is not None,
+        }
+
+def annotated_jpeg(version):
+    with detection_lock:
+        if latest_detection is None or latest_detection["version"] != version:
+            return None
+        return latest_detection["jpeg"]
 
 def copy_latest_frame():
     with frame_lock:
@@ -317,7 +422,19 @@ def trigger_ai():
             return "camera frame unavailable", 503
         return jsonify({"error": "camera frame unavailable"}), 503
 
-    operational_class, confidence, _annotated = classify_frame(frame)
+    operational_class, confidence, bbox, annotated = classify_frame(frame)
+    jpeg_bytes = None
+    if annotated is not None:
+        ok, encoded = cv2.imencode(".jpg", annotated)
+        if ok:
+            jpeg_bytes = encoded.tobytes()
+    publish_detection(
+        bean_id,
+        operational_class,
+        None if operational_class == "EMPTY" else confidence,
+        None if operational_class == "EMPTY" else bbox,
+        None if operational_class == "EMPTY" else jpeg_bytes,
+    )
     print(f"\n[SIGNAL] ESP32 Scan Request -> Returning: {operational_class}")
     record_classification_event(operational_class, bean_id)
     if bean_id is None:
@@ -325,7 +442,7 @@ def trigger_ai():
     return jsonify({
         "bean_id": bean_id,
         "operational_class": operational_class,
-        "confidence": confidence,
+        "confidence": 0.0 if confidence is None else confidence,
     })
 
 @app.route('/events', methods=['GET'])
@@ -375,6 +492,25 @@ def generate_mjpeg():
 def video_feed():
     return Response(generate_mjpeg(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
+@app.route('/vision/last-classification', methods=['GET'])
+def last_classification():
+    metadata = classification_metadata()
+    if metadata is None:
+        return jsonify({"error": "no classification"}), 404
+    return jsonify(metadata)
+
+@app.route('/vision/annotated', methods=['GET'])
+def vision_annotated():
+    raw_version = request.args.get("version")
+    try:
+        version = int(raw_version)
+    except (TypeError, ValueError):
+        return "version required", 400
+    jpeg = annotated_jpeg(version)
+    if not jpeg:
+        return "annotated frame unavailable", 404
+    return Response(jpeg, mimetype="image/jpeg")
+
 @app.route('/vision/frame', methods=['GET'])
 def vision_frame():
     snapshot = copy_latest_frame()
@@ -384,6 +520,119 @@ def vision_frame():
     if not ok:
         return "jpeg encode failed", 500
     return Response(jpeg.tobytes(), mimetype='image/jpeg')
+
+def _command_ids_match(record, stream_text, command_id):
+    try:
+        stream_id = int(str(stream_text).strip())
+        parsed_command_id = int(command_id)
+    except (TypeError, ValueError):
+        return False
+    return stream_id == record["stream_id"] and parsed_command_id == record["command_id"]
+
+def _command_view(record):
+    body = {
+        "machine_id": MACHINE_ID,
+        "command_stream_id": str(record["stream_id"]),
+        "command_id": record["command_id"],
+        "command": record["command"],
+        "status": record["status"],
+    }
+    if record["status"] == "acknowledged" and record["result_state"]:
+        body["result_state"] = record["result_state"]
+    if record["status"] == "rejected" and record["reason"]:
+        body["reason"] = record["reason"]
+    return body
+
+@app.route('/machine/command', methods=['POST'])
+def machine_command():
+    global next_command_id, pending_command
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "json body required"}), 400
+    if (payload.get("machine_id") or "").strip() != MACHINE_ID:
+        return jsonify({"error": "machine_id mismatch"}), 403
+    command = payload.get("command")
+    if command not in MOTION_COMMANDS:
+        return jsonify({"error": "unknown command"}), 400
+
+    record = {
+        "stream_id": command_stream_id,
+        "command_id": None,
+        "command": command,
+        "status": "pending",
+        "result_state": None,
+        "reason": None,
+        "event": threading.Event(),
+    }
+    with command_lock:
+        if command in ("START", "PAUSE") and pending_command is not None and pending_command["status"] == "pending":
+            return jsonify({"status": "rejected", "reason": "busy"}), 409
+        if command == "STOP" and pending_command is not None and pending_command["status"] == "pending":
+            displaced = pending_command
+            displaced["status"] = "superseded"
+            displaced["result_state"] = None
+            displaced["event"].set()
+        record["command_id"] = next_command_id
+        next_command_id += 1
+        pending_command = record
+        print(f"[CMD] pending {command} {record['stream_id']}:{record['command_id']}")
+
+    record["event"].wait(COMMAND_ACK_TIMEOUT_S)
+    with command_lock:
+        if record["status"] == "pending":
+            record["status"] = "timeout"
+            record["result_state"] = None
+            if pending_command is record:
+                pending_command = None
+            print(f"[CMD] timeout {record['stream_id']}:{record['command_id']}")
+        view = _command_view(record)
+    return jsonify(view), 200
+
+@app.route('/machine/command/next', methods=['GET'])
+def machine_command_next():
+    if (request.args.get("machine_id") or "").strip() != MACHINE_ID:
+        return jsonify({"error": "machine_id mismatch"}), 403
+    with command_lock:
+        if pending_command is None or pending_command["status"] != "pending":
+            return "", 204
+        return jsonify({
+            "machine_id": MACHINE_ID,
+            "command_stream_id": str(pending_command["stream_id"]),
+            "command_id": pending_command["command_id"],
+            "command": pending_command["command"],
+        })
+
+@app.route('/machine/command/ack', methods=['POST'])
+def machine_command_ack():
+    global pending_command
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "json body required"}), 400
+    if (payload.get("machine_id") or "").strip() != MACHINE_ID:
+        return jsonify({"error": "machine_id mismatch"}), 403
+    status = payload.get("status")
+    if status not in ("acknowledged", "rejected"):
+        return jsonify({"error": "invalid status"}), 400
+    result_state = payload.get("result_state")
+    reason = payload.get("reason")
+    if status == "acknowledged" and result_state not in ("RUNNING", "PAUSED", "STOPPED"):
+        return jsonify({"error": "invalid result_state"}), 400
+    if status == "rejected" and reason not in (None, "calibration_active"):
+        return jsonify({"error": "invalid reason"}), 400
+
+    with command_lock:
+        current = pending_command
+        if current is None or current["status"] != "pending":
+            return jsonify({"error": "stale"}), 409
+        if not _command_ids_match(current, payload.get("command_stream_id"), payload.get("command_id")):
+            return jsonify({"error": "stale"}), 409
+        current["status"] = status
+        current["result_state"] = result_state if status == "acknowledged" else None
+        current["reason"] = reason if status == "rejected" else None
+        pending_command = None
+        current["event"].set()
+        print(f"[CMD] {status} {current['stream_id']}:{current['command_id']} result={current['result_state']}")
+    return jsonify({"ok": True}), 200
 
 def start_flask():
     app.run(host='0.0.0.0', port=5000, debug=False, threaded=True, use_reloader=False)
