@@ -521,6 +521,8 @@ def vision_frame():
         return "jpeg encode failed", 500
     return Response(jpeg.tobytes(), mimetype='image/jpeg')
 
+_next_poll_logged = False
+
 def _command_ids_match(record, stream_text, command_id):
     try:
         stream_id = int(str(stream_text).strip())
@@ -590,8 +592,12 @@ def machine_command():
 
 @app.route('/machine/command/next', methods=['GET'])
 def machine_command_next():
+    global _next_poll_logged
     if (request.args.get("machine_id") or "").strip() != MACHINE_ID:
         return jsonify({"error": "machine_id mismatch"}), 403
+    if not _next_poll_logged:
+        _next_poll_logged = True
+        print(f"[CMD] CS-0001 polling /next from {request.remote_addr}")
     with command_lock:
         if pending_command is None or pending_command["status"] != "pending":
             return "", 204
@@ -634,9 +640,36 @@ def machine_command_ack():
         print(f"[CMD] {status} {current['stream_id']}:{current['command_id']} result={current['result_state']}")
     return jsonify({"ok": True}), 200
 
+DISCOVERY_PORT = 5055
+DISCOVERY_TOKEN = b"CACAO_DISCOVER"
+
+def discovery_loop():
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(("0.0.0.0", DISCOVERY_PORT))
+    except OSError as exc:
+        print(f"[DISCOVERY] UDP bind failed: {exc}")
+        sock.close()
+        return
+    print(f"[DISCOVERY] Listening on UDP {DISCOVERY_PORT}")
+    while True:
+        try:
+            data, addr = sock.recvfrom(64)
+        except OSError:
+            continue
+        if data.strip() != DISCOVERY_TOKEN:
+            continue
+        reply = f"machine_id={MACHINE_ID}\nport=5000\n".encode("ascii")
+        try:
+            sock.sendto(reply, addr)
+        except OSError as exc:
+            print(f"[DISCOVERY] reply failed: {exc}")
+
 def start_flask():
     app.run(host='0.0.0.0', port=5000, debug=False, threaded=True, use_reloader=False)
 
+threading.Thread(target=discovery_loop, daemon=True).start()
 threading.Thread(target=start_flask, daemon=True).start()
 
 cv2.namedWindow("CacaoScan - Multi-Bean Vision Feed", cv2.WINDOW_AUTOSIZE)

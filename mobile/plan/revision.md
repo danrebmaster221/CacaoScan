@@ -1,157 +1,161 @@
-CacaoScan — PHASE 1 MACHINE CONTROL IMPLEMENTATION AUDIT
+CacaoScan — AUDIT REQ_TRIGGER FAULT_QUEUE_FULL
 
-AUDIT ONLY.
+AUDIT / PLAN ONLY.
 
 Do NOT modify files.
 Do NOT stage.
 Do NOT commit.
 Do NOT push.
 
-Inspect the ACTUAL implemented code in:
+==================================================
+NEW PHYSICAL RESULT
+==================================================
+
+The previous fix was implemented:
+
+onEntryDetected()
+-> LIFE_WAIT_CAMERA
+-> dispatchOldestCameraBean()
+
+After flashing, physical IR1 test produced:
+
+[BEAN 8] DETECTED
+[BEAN 8] WAIT_CAMERA
+[FAULT] FAULT_QUEUE_FULL
+[FAULT] FAULT_QUEUE_FULL
+... repeated
+
+There was NO:
+
+[BEAN 8] CLASSIFY_QUEUED
+
+and therefore no automatic /trigger reached Flask.
+
+Manual Flask /trigger was already proven working.
+
+==================================================
+GOAL
+==================================================
+
+Find exactly why dispatchOldestCameraBean() cannot enqueue REQ_TRIGGER.
+
+Do NOT increase queue size or redesign anything until the cause is
+proven.
+
+Audit ONLY:
 
 firmware/models/ver_1/CacaoScan_AI.ino
-Cacao_Server/edge_server.py
-
-Do not redesign the approved architecture.
-
-Check these implementation details:
 
 
-1. FLASK CONCURRENCY
+==================================================
+TRACE requestQueue COMPLETELY
+==================================================
 
-POST /machine/command may wait up to 8 seconds for an ESP32 ACK.
+Report:
 
-During that wait, Flask must still be able to serve:
+1. Where requestQueue is declared.
 
-GET /machine/command/next
-POST /machine/command/ack
+2. Exact xQueueCreate call:
+   - queue length
+   - item size
 
-Confirm:
+3. Exact request struct/type stored in the queue.
 
-- Flask is running threaded/concurrently enough for this flow.
-- /machine/command does NOT hold a mutex/lock for the entire wait.
-- shared command state is protected from races.
-- /next and /ack can acquire the command-state lock while the original
-  POST is waiting.
+4. Every xQueueSend / xQueueSendToBack / xQueueSendToFront writer to
+   requestQueue.
 
-Show the relevant locking/waiting code.
+5. Every xQueueReceive consumer.
 
+6. Whether machine command polling uses requestQueue or bypasses it.
 
-2. TIMEOUT VS ACK RACE
+7. Whether any request is inserted during setup/startup before IR1.
 
-Audit the case where ACK arrives at almost the same time as the
-8-second caller timeout.
+8. Whether a failed/unfinished old request can remain in requestQueue.
 
-Confirm there is one deterministic winner:
+9. Whether edgeHttpTask can become blocked long enough that the queue
+   remains full.
 
-- if ACK resolves first -> acknowledged result
-- if timeout resolves first -> timeout, ACK cannot revive it
+10. Whether the task was successfully created and is actually running.
 
-If Flask rejects a late START ACK, confirm the ESP32 worker receives
-that rejection and issues the one-time conveyor fail-safe STOP.
+11. Whether the queue handle can be null.
 
+12. Whether dispatchOldestCameraBean() currently reports the same
+    FAULT_QUEUE_FULL for:
+    - requestQueue == nullptr
+    - actual xQueueSend failure
 
-3. 64-BIT COMMAND IDENTITY
-
-Trace command_stream_id through the whole implementation:
-
-Python generation
--> JSON serialization
--> ESP32 parsing
--> CommandRequest
--> loop deduplication
--> CommandResult
--> JSON ACK back to Flask
-
-Confirm it remains full 64-bit throughout.
-
-Look specifically for accidental use of:
-
-int
-atoi
-strtol
-32-bit unsigned long
-%u / %lu
-
-where uint64_t / strtoull / equivalent is required.
-
-Show the actual types and parsing/formatting used.
+If those two causes share the same fault, distinguish them in the audit.
 
 
-4. COMMAND POLLING STARVATION
+==================================================
+IMPORTANT PHYSICAL CLUE
+==================================================
 
-Current report says command polling occurs after the bean queue has
-been idle for 250 ms.
+The firmware is simultaneously able to poll:
 
-Determine whether a continuously busy classification queue can prevent
-START/PAUSE/STOP polling indefinitely.
+GET /machine/command/next?machine_id=CS-0001
 
-STOP is operational, not an emergency stop, so a currently active HTTP
-request may impose a bounded delay. However, bean traffic must NOT
-starve command polling indefinitely.
+in the previously validated setup.
 
-Confirm either:
+Determine whether that proves edgeHttpTask is alive, or whether command
+polling occurs through a separate path/task.
 
-A. command polling is guaranteed periodic/priority even with bean
-   requests queued,
+
+==================================================
+REPEATED FAULT PRINTS
+==================================================
+
+Audit why:
+
+[FAULT] FAULT_QUEUE_FULL
+
+prints repeatedly after one IR1 event.
+
+Determine whether:
+
+A. dispatchOldestCameraBean() is being called repeatedly,
 
 or
 
-B. identify the exact starvation problem and propose the smallest
-   correction.
+B. a latched global fault is merely printed repeatedly elsewhere.
 
-Do not implement it yet.
-
-
-5. GPIO OWNERSHIP
-
-Confirm that outside initial setup:
-
-only the main loop calls setConveyor()
-
-and edgeHttpTask never directly writes GPIO46.
-
-Confirm:
-
-LOW  = physical conveyor RUNNING
-HIGH = physical conveyor STOPPED
+Do not change that behavior yet; just identify it.
 
 
-6. FAIL-SAFE PATH
+==================================================
+DO NOT CHANGE
+==================================================
 
-Confirm Wi-Fi/verified-edge loss is noticed by logic that still runs
-while normal machine state is RUNNING.
+Do not change:
 
-Confirm:
+- queue capacity
+- IR debounce
+- bean timing
+- servo control
+- conveyor control
+- command polling
+- network recovery
+- edge_server.py
+- mobile
+- YOLO
 
-RUNNING + not calibration + network/edge loss
--> setConveyor(false)
--> STOPPED
-
-But:
-
-calibrationMode == true
--> network loss alone does NOT stop local calibration.
-
-
-7. PYTHON VALIDATION
-
-Run at minimum:
-
-python -m py_compile Cacao_Server/edge_server.py
-
-Report whether it passes.
+until the root cause is identified.
 
 
-Return only:
+==================================================
+RETURN
+==================================================
 
-A. Flask concurrency result
-B. timeout/ACK race result
-C. 64-bit identity trace
-D. command starvation result
-E. GPIO ownership result
-F. fail-safe result
-G. Python compile result
-H. any blocking issue that must be fixed before the empty-belt test
-I. confirm no files changed
-J. confirm nothing staged/committed/pushed
+A. exact requestQueue declaration and creation
+B. queue length and item size
+C. all producers
+D. all consumers
+E. queue state expected immediately after boot
+F. whether edgeHttpTask is definitely alive
+G. why the first automatic REQ_TRIGGER gets FAULT_QUEUE_FULL
+H. why the fault line repeats
+I. smallest safe fix
+J. exact file(s) that would change
+K. physical verification procedure
+L. confirm no files changed
+M. confirm nothing staged/committed/pushed

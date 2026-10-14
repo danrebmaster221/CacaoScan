@@ -138,8 +138,8 @@ export function useBatchController() {
   }
 
   const createBatch = useCallback(
-    async (batchName: string, harvestDate: string, targetBeanCount: number = 0) => {
-      if (!user) return;
+    async (batchName: string, harvestDate: string, targetBeanCount: number = 0): Promise<boolean> => {
+      if (!user) return false;
       setIsLoading(true);
       setError(null);
 
@@ -161,8 +161,10 @@ export function useBatchController() {
 
         setActiveBatch(data as Batch);
         setElapsedSeconds(0);
+        return true;
       } catch (e: any) {
         setError(e.message);
+        return false;
       } finally {
         setIsLoading(false);
       }
@@ -170,8 +172,8 @@ export function useBatchController() {
     [user]
   );
 
-  const pauseBatch = useCallback(async () => {
-    if (!activeBatch) return;
+  const pauseBatch = useCallback(async (): Promise<boolean> => {
+    if (!activeBatch) return false;
     setIsLoading(true);
 
     try {
@@ -186,15 +188,17 @@ export function useBatchController() {
       if (updateError) throw new Error(updateError.message);
 
       setActiveBatch((prev) => (prev ? { ...prev, status: 'paused' } : null));
+      return true;
     } catch (e: any) {
       setError(e.message);
+      return false;
     } finally {
       setIsLoading(false);
     }
   }, [activeBatch, elapsedSeconds]);
 
-  const resumeBatch = useCallback(async () => {
-    if (!activeBatch) return;
+  const resumeBatch = useCallback(async (): Promise<boolean> => {
+    if (!activeBatch) return false;
     setIsLoading(true);
 
     try {
@@ -206,15 +210,17 @@ export function useBatchController() {
       if (updateError) throw new Error(updateError.message);
 
       setActiveBatch((prev) => (prev ? { ...prev, status: 'active' } : null));
+      return true;
     } catch (e: any) {
       setError(e.message);
+      return false;
     } finally {
       setIsLoading(false);
     }
   }, [activeBatch]);
 
-  const stopBatch = useCallback(async () => {
-    if (!activeBatch) return;
+  const stopBatch = useCallback(async (): Promise<boolean> => {
+    if (!activeBatch) return false;
     setIsLoading(true);
 
     try {
@@ -243,8 +249,10 @@ export function useBatchController() {
 
       setActiveBatch(null);
       setElapsedSeconds(0);
+      return true;
     } catch (e: any) {
       setError(e.message);
+      return false;
     } finally {
       setIsLoading(false);
     }

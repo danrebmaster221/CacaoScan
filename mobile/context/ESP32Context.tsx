@@ -22,6 +22,8 @@ const DEFAULT_HOST = Platform.OS === 'web' ? '127.0.0.1' : '192.168.1.11';
 const WS_PORT = 8080;
 const EDGE_PORT = 5000;
 const CONNECT_TIMEOUT_MS = 5000;
+const COMMAND_TIMEOUT_MS = 12000;
+const HEALTH_RETRY_MS = 4000;
 
 export type EdgeIdentityStatus =
   | 'unknown'
@@ -38,7 +40,9 @@ function hostOnly(value: string): string {
   return withoutScheme.split('/')[0].split(':')[0];
 }
 
-export type MachineState = 'STOPPED' | 'RUNNING' | 'PAUSED';
+export type MachineState = 'UNKNOWN' | 'STOPPED' | 'RUNNING' | 'PAUSED';
+
+export type CommandResult = { ok: true } | { ok: false; message: string };
 
 export interface ClassResult {
   id: string;
@@ -62,7 +66,7 @@ interface ESP32ContextValue {
   connect: (hostOverride?: string) => Promise<boolean>;
   disconnect: () => void;
   enableDemoMode: () => void;
-  sendCommand: (command: 'START' | 'PAUSE' | 'STOP') => void;
+  sendCommand: (command: 'START' | 'PAUSE' | 'STOP') => Promise<CommandResult>;
   currentClassification: ClassResult | null;
   recentClassifications: ClassResult[];
   /** Bind active batch + optional counter callback (dashboard / vision). */
@@ -80,7 +84,7 @@ export function ESP32Provider({ children }: { children: React.ReactNode }) {
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isDemoMode, setIsDemoMode] = useState(false);
-  const [machineState, setMachineState] = useState<MachineState>('STOPPED');
+  const [machineState, setMachineState] = useState<MachineState>('UNKNOWN');
   const [serverHost, setServerHostState] = useState(DEFAULT_HOST);
   const [edgeIdentity, setEdgeIdentity] = useState<EdgeIdentityStatus>('unknown');
   const [currentClassification, setCurrentClassification] = useState<ClassResult | null>(null);
@@ -99,18 +103,37 @@ export function ESP32Provider({ children }: { children: React.ReactNode }) {
   const lastStreamIdRef = useRef<string | null>(null);
   const lastEventIdRef = useRef(0);
   const pollInFlightRef = useRef(false);
+  const healthRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearHealthRetry = useCallback(() => {
+    if (healthRetryRef.current) {
+      clearTimeout(healthRetryRef.current);
+      healthRetryRef.current = null;
+    }
+  }, []);
 
   const refreshEdgeIdentity = useCallback(async (host: string) => {
+    clearHealthRetry();
     const cleaned = hostOnly(host);
     const seq = ++identitySeq.current;
     const healthUrl = cleaned ? `http://${cleaned}:${EDGE_PORT}/health` : '';
+    const scheduleHealthRetry = () => {
+      if (seq !== identitySeq.current) return;
+      const nextHost = hostOnly(hostRef.current);
+      if (!nextHost || !linkedMachineIdRef.current.trim()) return;
+      clearHealthRetry();
+      healthRetryRef.current = setTimeout(() => {
+        healthRetryRef.current = null;
+        void refreshEdgeIdentity(hostRef.current);
+      }, HEALTH_RETRY_MS);
+    };
     console.log('[edge-health] host', cleaned || '(empty)');
     console.log('[edge-health] url', healthUrl || '(none)');
     if (!cleaned) {
       setEdgeIdentity('unpaired');
       return;
     }
-    setEdgeIdentity('checking');
+    if (edgeIdentityRef.current !== 'matched') setEdgeIdentity('checking');
     try {
       const {
         data: { user },
@@ -152,15 +175,20 @@ export function ESP32Provider({ children }: { children: React.ReactNode }) {
       console.log('[edge-health] status', res.status);
       console.log('[edge-health] body', body);
       if (seq !== identitySeq.current) return;
-      setEdgeIdentity(res.ok && body === linked ? 'matched' : 'mismatch');
+      if (res.ok && body === linked) setEdgeIdentity('matched');
+      else if (res.ok) setEdgeIdentity('mismatch');
+      else setEdgeIdentity('unreachable');
+      scheduleHealthRetry();
     } catch (error) {
       const name = error instanceof Error ? error.name : 'unknown';
       const message = error instanceof Error ? error.message : String(error);
       console.log('[edge-health] error', name);
       console.log('[edge-health] message', message);
-      if (seq === identitySeq.current) setEdgeIdentity('unreachable');
+      if (seq !== identitySeq.current) return;
+      setEdgeIdentity('unreachable');
+      scheduleHealthRetry();
     }
-  }, []);
+  }, [clearHealthRetry]);
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY).then((saved) => {
@@ -170,6 +198,13 @@ export function ESP32Provider({ children }: { children: React.ReactNode }) {
       refreshEdgeIdentity(next);
     });
   }, [refreshEdgeIdentity]);
+
+  useEffect(() => {
+    return () => {
+      identitySeq.current += 1;
+      clearHealthRetry();
+    };
+  }, [clearHealthRetry]);
 
   const setServerHost = useCallback((host: string) => {
     const next = hostOnly(host) || DEFAULT_HOST;
@@ -249,6 +284,7 @@ export function ESP32Provider({ children }: { children: React.ReactNode }) {
   };
 
   const disconnect = useCallback(() => {
+    const wasDemo = demoRef.current;
     intentionalCloseRef.current = true;
     clearReconnect();
     demoRef.current = false;
@@ -263,7 +299,7 @@ export function ESP32Provider({ children }: { children: React.ReactNode }) {
     }
     setIsConnected(false);
     setIsConnecting(false);
-    setMachineState('STOPPED');
+    if (wasDemo) setMachineState('UNKNOWN');
   }, []);
 
   const enableDemoMode = useCallback(() => {
@@ -338,9 +374,7 @@ export function ESP32Provider({ children }: { children: React.ReactNode }) {
           ws.onmessage = (event) => {
             try {
               const message = JSON.parse(event.data);
-              if (message.type === 'STATUS') {
-                setMachineState(message.state);
-              } else if (
+              if (
                 demoRef.current &&
                 (message.type === 'BEAN_DETECTED' ||
                   message.type === 'classification_result')
@@ -475,17 +509,57 @@ export function ESP32Provider({ children }: { children: React.ReactNode }) {
     };
   }, [applyEventList, edgeIdentity, isDemoMode]);
 
-  const sendCommand = useCallback((command: 'START' | 'PAUSE' | 'STOP') => {
+  const sendCommand = useCallback(async (command: 'START' | 'PAUSE' | 'STOP'): Promise<CommandResult> => {
+    const expected = command === 'START' ? 'RUNNING' : command === 'PAUSE' ? 'PAUSED' : 'STOPPED';
     if (demoRef.current) {
-      setMachineState(
-        command === 'START' ? 'RUNNING' : command === 'PAUSE' ? 'PAUSED' : 'STOPPED'
-      );
-      return;
+      setMachineState(expected);
+      return { ok: true };
     }
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ command }));
-    } else {
-      console.warn('Cannot send command. WebSocket is not connected.');
+    if (edgeIdentityRef.current !== 'matched') {
+      return { ok: false, message: 'Edge not verified' };
+    }
+    const machineId = linkedMachineIdRef.current.trim();
+    const host = hostOnly(hostRef.current);
+    if (!machineId || !host) {
+      return { ok: false, message: 'Edge not verified' };
+    }
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), COMMAND_TIMEOUT_MS);
+    try {
+      const res = await fetch(`http://${host}:${EDGE_PORT}/machine/command`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ machine_id: machineId, command }),
+        signal: controller.signal,
+      });
+      let body: { machine_id?: string; status?: string; result_state?: string } | null = null;
+      try {
+        body = await res.json();
+      } catch {
+        return { ok: false, message: 'Machine did not confirm' };
+      }
+      if (res.status === 403) return { ok: false, message: 'Wrong machine' };
+      if (typeof body?.machine_id === 'string' && body.machine_id !== machineId) {
+        return { ok: false, message: 'Wrong machine' };
+      }
+      if (body?.status === 'timeout') return { ok: false, message: 'Command timed out' };
+      if (body?.status === 'rejected') return { ok: false, message: 'Command rejected' };
+      if (
+        res.ok &&
+        body?.status === 'acknowledged' &&
+        body.result_state === expected &&
+        body.machine_id === machineId
+      ) {
+        setMachineState(expected);
+        return { ok: true };
+      }
+      return { ok: false, message: 'Machine did not confirm' };
+    } catch (error) {
+      const name = error instanceof Error ? error.name : '';
+      if (name === 'AbortError') return { ok: false, message: 'Command timed out' };
+      return { ok: false, message: 'Edge not verified' };
+    } finally {
+      clearTimeout(timeoutId);
     }
   }, []);
 

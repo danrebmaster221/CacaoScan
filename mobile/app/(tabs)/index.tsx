@@ -58,7 +58,6 @@ export default function DashboardScreen() {
   const { user, userRole } = useAuth();
   const {
     activeBatch,
-    isLoading,
     elapsedSeconds,
     totalBeans,
     throughput,
@@ -73,6 +72,8 @@ export default function DashboardScreen() {
     isConnected,
     isConnecting,
     isDemoMode,
+    machineState,
+    edgeIdentity,
     serverHost,
     setServerHost,
     connect,
@@ -83,6 +84,9 @@ export default function DashboardScreen() {
   } = useESP32Connection(activeBatch?.id, incrementBean);
 
   const [showNewSession, setShowNewSession] = useState(false);
+  const [commandPending, setCommandPending] = useState<
+    'start' | 'pause' | 'resume' | 'stop' | 'finalize' | 'ensure' | null
+  >(null);
   const [harvestDateDate, setHarvestDateDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [harvestDate, setHarvestDate] = useState(new Date().toISOString().split('T')[0]);
@@ -114,6 +118,7 @@ export default function DashboardScreen() {
   };
 
   async function handleStartSession() {
+    if (commandPending) return;
     if (!batchName.trim()) {
       Alert.alert('Invalid Input', 'Please enter a batch name or lot number.');
       return;
@@ -123,26 +128,144 @@ export default function DashboardScreen() {
       Alert.alert('Invalid Input', 'Please enter a valid target bean count.');
       return;
     }
-    await createBatch(batchName.trim(), harvestDate, finalTargetCount);
-    sendCommand('START');
-    setShowNewSession(false);
-    setBatchName('');
+    setCommandPending('start');
+    try {
+      const started = await sendCommand('START');
+      if (!started.ok) {
+        Alert.alert('Command failed', started.message);
+        return;
+      }
+      const saved = await createBatch(batchName.trim(), harvestDate, finalTargetCount);
+      if (!saved) {
+        const stopped = await sendCommand('STOP');
+        Alert.alert(
+          'Batch not saved',
+          stopped.ok
+            ? 'The conveyor was stopped.'
+            : 'The conveyor may still be running.'
+        );
+        return;
+      }
+      setShowNewSession(false);
+      setBatchName('');
+    } finally {
+      setCommandPending(null);
+    }
   }
 
-  function handleStopSession() {
-    stopBatch();
-    sendCommand('STOP');
+  async function handlePause() {
+    if (commandPending) return;
+    setCommandPending('pause');
+    try {
+      const paused = await sendCommand('PAUSE');
+      if (!paused.ok) {
+        Alert.alert('Command failed', paused.message);
+        return;
+      }
+      const saved = await pauseBatch();
+      if (!saved) {
+        Alert.alert('Sync error', 'The conveyor is paused, but the batch was not updated.');
+      }
+    } finally {
+      setCommandPending(null);
+    }
+  }
+
+  async function handleResume() {
+    if (commandPending) return;
+    setCommandPending('resume');
+    try {
+      const started = await sendCommand('START');
+      if (!started.ok) {
+        Alert.alert('Command failed', started.message);
+        return;
+      }
+      const saved = await resumeBatch();
+      if (!saved) {
+        const stopped = await sendCommand('STOP');
+        Alert.alert(
+          'Sync error',
+          stopped.ok
+            ? 'The conveyor was stopped. The batch was not updated.'
+            : 'The batch was not updated, and the stop was not confirmed.'
+        );
+      }
+    } finally {
+      setCommandPending(null);
+    }
+  }
+
+  async function handleStopSession() {
+    if (commandPending) return;
+    const finalizing = machineState === 'STOPPED';
+    setCommandPending(finalizing ? 'finalize' : 'stop');
+    try {
+      const stopped = await sendCommand('STOP');
+      if (!stopped.ok) {
+        Alert.alert('Command failed', stopped.message);
+        return;
+      }
+      if (!activeBatch) return;
+      const saved = await stopBatch();
+      if (!saved) {
+        Alert.alert('Sync error', 'The conveyor is stopped, but the batch was not finalized.');
+      }
+    } finally {
+      setCommandPending(null);
+    }
+  }
+
+  async function handleEnsureStopped() {
+    if (commandPending) return;
+    setCommandPending('ensure');
+    try {
+      const stopped = await sendCommand('STOP');
+      if (!stopped.ok) Alert.alert('Command failed', stopped.message);
+    } finally {
+      setCommandPending(null);
+    }
   }
 
   async function handleConnectScanner() {
     await promptConnectScanner(connect, enableDemoMode, serverHost);
   }
 
-  const machineStatus: 'offline' | 'idle' | 'sorting' = !isConnected
-    ? 'offline'
-    : activeBatch?.status === 'active'
-      ? 'sorting'
-      : 'idle';
+  const edgeReady = edgeIdentity === 'matched';
+  const controlsLocked = commandPending !== null;
+  const physicalLabel =
+    machineState === 'UNKNOWN'
+      ? 'Machine State: Not Confirmed'
+      : machineState === 'RUNNING'
+        ? 'Machine: RUNNING'
+        : machineState === 'PAUSED'
+          ? 'Machine: PAUSED'
+          : 'Machine: STOPPED';
+  const showEnsure = edgeReady && machineState === 'UNKNOWN';
+  const showStart = !activeBatch && machineState === 'STOPPED' && edgeReady;
+  const showPause = !!activeBatch && machineState === 'RUNNING' && edgeReady;
+  const showResume =
+    !!activeBatch &&
+    edgeReady &&
+    (machineState === 'PAUSED' ||
+      (machineState === 'STOPPED' && activeBatch.status === 'paused'));
+  const showStop =
+    !!activeBatch &&
+    edgeReady &&
+    (machineState === 'RUNNING' || machineState === 'PAUSED' || machineState === 'STOPPED');
+  const pendingLabel =
+    commandPending === 'start'
+      ? 'Starting...'
+      : commandPending === 'pause'
+        ? 'Pausing...'
+        : commandPending === 'resume'
+          ? 'Resuming...'
+          : commandPending === 'finalize'
+            ? 'Finalizing...'
+            : commandPending === 'ensure'
+              ? 'Ensuring stopped...'
+              : commandPending === 'stop'
+                ? 'Stopping...'
+                : '';
 
   return (
     <SafeAreaView
@@ -165,105 +288,99 @@ export default function DashboardScreen() {
             style={[
               styles.statusPill,
               {
-                backgroundColor: machineStatus === 'offline' ? theme.dangerBg : theme.successBg,
+                backgroundColor: isConnected ? theme.successBg : theme.dangerBg,
               },
             ]}
           >
             <View
               style={[
                 styles.statusDot,
-                { backgroundColor: machineStatus === 'offline' ? theme.danger : theme.success },
+                { backgroundColor: isConnected ? theme.success : theme.danger },
               ]}
             />
             <Text
               style={{
-                color: machineStatus === 'offline' ? theme.danger : theme.success,
+                color: isConnected ? theme.success : theme.danger,
                 fontFamily: Typography.fontFamily.semiBold,
                 fontSize: 13,
               }}
             >
-              {machineStatus === 'offline' ? 'Offline' : 'Online'}
+              {isConnected ? 'Scanner online' : 'Scanner offline'}{isDemoMode ? ' · Demo' : ''}
             </Text>
           </View>
         </View>
 
-        {/* Status hero */}
-        {machineStatus === 'sorting' && activeBatch ? (
-          <View style={styles.heroSorting}>
-            <View style={styles.heroTopRow}>
-              <View style={styles.livePill}>
-                <View style={styles.liveDot} />
-                <Text style={styles.liveText}>Sorting Live</Text>
-              </View>
-              <Text style={styles.heroMuted}>Elapsed {formatTime(elapsedSeconds)}</Text>
-            </View>
-            <Text style={styles.heroMuted}>Current batch</Text>
-            <Text style={styles.heroTitle}>{activeBatch.batch_name}</Text>
-            <View style={styles.heroMetrics}>
-              <View>
-                <Text style={styles.heroMetricValue}>{throughput}</Text>
-                <Text style={styles.heroMuted}>beans / min</Text>
-              </View>
-              <View>
-                <Text style={styles.heroMetricValue}>{totalBeans}</Text>
-                <Text style={styles.heroMuted}>sorted this run</Text>
-              </View>
-            </View>
-            {currentClassification && (
-              <Text style={[styles.heroMuted, { marginTop: 12 }]}>
-                Last: {currentClassification.operationalClass.replace(/_/g, ' ')} ·{' '}
-                {Math.round(currentClassification.confidence * 100)}%
+        <View style={[styles.heroIdle, { borderColor: theme.border, backgroundColor: theme.surface }]}>
+          <Text style={[styles.idleTitle, { color: theme.text }]}>{physicalLabel}</Text>
+          {activeBatch ? (
+            <>
+              <Text style={{ color: theme.textSecondary, marginTop: 8, fontSize: 14 }}>
+                Batch: {activeBatch.batch_name}
               </Text>
-            )}
-            <View style={styles.heroActions}>
-              <TouchableOpacity
-                style={styles.heroSecondaryBtn}
-                onPress={() => router.push('/(tabs)/vision' as any)}
-              >
-                <Text style={styles.heroSecondaryText}>View Live Feed</Text>
-              </TouchableOpacity>
-              {activeBatch.status === 'paused' ? (
-                <TouchableOpacity
-                  style={styles.heroPrimaryBtn}
-                  onPress={() => {
-                    resumeBatch();
-                    sendCommand('START');
-                  }}
-                >
-                  <Text style={styles.heroPrimaryText}>Resume</Text>
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity
-                  style={[styles.heroPrimaryBtn, { backgroundColor: '#e02424' }]}
-                  onPress={handleStopSession}
-                >
-                  <Text style={styles.heroPrimaryText}>Stop Sorting</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-            {activeBatch.status === 'active' && (
-              <TouchableOpacity style={styles.pauseLink} onPress={() => { pauseBatch(); sendCommand('PAUSE'); }}>
-                <Text style={styles.pauseLinkText}>Pause session</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        ) : machineStatus === 'idle' ? (
-          <View style={[styles.heroIdle, { borderColor: '#cfe9d4', backgroundColor: '#f0f9f1' }]}>
-            <View style={[styles.statusPill, { backgroundColor: '#e0f2e2', alignSelf: 'flex-start' }]}>
-              <View style={[styles.statusDot, { backgroundColor: theme.success }]} />
-              <Text style={{ color: theme.success, fontFamily: Typography.fontFamily.bold, fontSize: 12 }}>
-                SCANNER ONLINE{isDemoMode ? ' · DEMO' : ''}
+              <Text style={{ color: theme.textSecondary, marginTop: 4, fontSize: 14 }}>
+                Batch status: {activeBatch.status}
               </Text>
-            </View>
-            <Text style={[styles.idleTitle, { color: theme.text }]}>Idle — Ready to Sort</Text>
-            <Text style={{ color: '#7a8a7c', marginTop: 4, fontSize: 14 }}>
-              Edge station connected. Start a session to run the conveyor.
+              <Text style={{ color: theme.textSecondary, marginTop: 4, fontSize: 14 }}>
+                Elapsed {formatTime(elapsedSeconds)} · {throughput} beans/min · {totalBeans} sorted
+              </Text>
+            </>
+          ) : null}
+          {currentClassification && machineState === 'RUNNING' ? (
+            <Text style={{ color: theme.textSecondary, marginTop: 8, fontSize: 14 }}>
+              Last: {currentClassification.operationalClass.replace(/_/g, ' ')} ·{' '}
+              {Math.round(currentClassification.confidence * 100)}%
             </Text>
-            <TouchableOpacity style={styles.disconnectLink} onPress={disconnect}>
-              <Text style={styles.disconnectLinkText}>Disconnect</Text>
+          ) : null}
+          {pendingLabel ? (
+            <Text style={{ color: theme.text, marginTop: 12, fontFamily: Typography.fontFamily.semiBold }}>
+              {pendingLabel}
+            </Text>
+          ) : null}
+          <View style={[styles.heroActions, { marginTop: 16 }]}>
+            {showEnsure ? (
+              <TouchableOpacity
+                style={[styles.heroPrimaryBtn, { backgroundColor: theme.primary }]}
+                onPress={handleEnsureStopped}
+                disabled={controlsLocked}
+              >
+                <Text style={styles.heroPrimaryText}>Ensure Stopped</Text>
+              </TouchableOpacity>
+            ) : null}
+            {showResume ? (
+              <TouchableOpacity
+                style={[styles.heroPrimaryBtn, { backgroundColor: theme.primary }]}
+                onPress={handleResume}
+                disabled={controlsLocked}
+              >
+                <Text style={styles.heroPrimaryText}>Resume</Text>
+              </TouchableOpacity>
+            ) : null}
+            {showStop ? (
+              <TouchableOpacity
+                style={[styles.heroPrimaryBtn, { backgroundColor: '#e02424' }]}
+                onPress={handleStopSession}
+                disabled={controlsLocked}
+              >
+                <Text style={styles.heroPrimaryText}>
+                  {machineState === 'STOPPED' ? 'Finalize batch' : 'Stop'}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+            <TouchableOpacity
+              style={[styles.heroSecondaryBtn, { backgroundColor: theme.border }]}
+              onPress={() => router.push('/(tabs)/vision' as any)}
+            >
+              <Text style={[styles.heroSecondaryText, { color: theme.text }]}>View Live Feed</Text>
             </TouchableOpacity>
           </View>
-        ) : (
+          {showPause ? (
+            <TouchableOpacity style={styles.pauseLink} onPress={handlePause} disabled={controlsLocked}>
+              <Text style={[styles.pauseLinkText, { color: theme.textSecondary }]}>Pause session</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+
+        {!isConnected ? (
           <View style={[styles.heroIdle, { borderColor: '#f0dcd8', backgroundColor: '#fdf3f1' }]}>
             <View style={[styles.statusPill, { backgroundColor: '#fbe1de', alignSelf: 'flex-start' }]}>
               <View style={[styles.statusDot, { backgroundColor: theme.danger }]} />
@@ -271,11 +388,9 @@ export default function DashboardScreen() {
                 SCANNER OFFLINE
               </Text>
             </View>
-            <Text style={[styles.idleTitle, { color: theme.text }]}>Not Connected</Text>
-            <Text style={{ color: '#a1857c', marginTop: 4, fontSize: 14 }}>
-              Connect to the edge station to begin sorting.
+            <Text style={{ color: '#a1857c', marginTop: 8, fontSize: 14 }}>
+              Scanner socket is offline. Conveyor controls use the verified edge.
             </Text>
-
             <View style={styles.serverRow}>
               <Text style={styles.serverLabel}>AI Server</Text>
               <TextInput
@@ -289,7 +404,6 @@ export default function DashboardScreen() {
                 style={styles.serverInput}
               />
             </View>
-
             <TouchableOpacity
               style={[styles.connectBtn, Shadows.md, isConnecting && { opacity: 0.7 }]}
               onPress={handleConnectScanner}
@@ -302,14 +416,19 @@ export default function DashboardScreen() {
               </Text>
             </TouchableOpacity>
           </View>
+        ) : (
+          <TouchableOpacity style={styles.disconnectLink} onPress={disconnect}>
+            <Text style={styles.disconnectLinkText}>
+              Disconnect scanner{isDemoMode ? ' · Demo' : ''}
+            </Text>
+          </TouchableOpacity>
         )}
 
-        {/* Start session CTA */}
-        {!activeBatch && machineStatus !== 'offline' && (
+        {showStart ? (
           <TouchableOpacity
             style={[styles.startCta, { backgroundColor: theme.primary }, Shadows.md]}
             onPress={() => setShowNewSession(true)}
-            disabled={isLoading}
+            disabled={controlsLocked}
           >
             <View>
               <Text style={styles.startCtaTitle}>Start New Session</Text>
@@ -317,12 +436,12 @@ export default function DashboardScreen() {
             </View>
             <Ionicons name="chevron-forward" size={22} color="#fff" />
           </TouchableOpacity>
-        )}
+        ) : null}
 
         {/* Today's summary */}
         <View style={styles.sectionHeader}>
           <Text style={[styles.sectionTitle, { color: theme.text }]}>Today&apos;s Summary</Text>
-          {machineStatus === 'sorting' && (
+          {machineState === 'RUNNING' && (
             <Text style={{ color: theme.success, fontFamily: Typography.fontFamily.semiBold, fontSize: 12 }}>
               ● Live
             </Text>
@@ -450,9 +569,9 @@ export default function DashboardScreen() {
             <View style={[styles.readyBanner, { backgroundColor: theme.successBg }]}>
               <Ionicons name="checkmark-circle" size={20} color={theme.success} />
               <Text style={{ color: theme.success, fontFamily: Typography.fontFamily.semiBold, fontSize: 13, flex: 1 }}>
-                {isConnected
-                  ? 'Machine ready · 5 gates active · Conveyor relay armed'
-                  : 'Scanner offline — you can still prepare a session'}
+                {edgeReady
+                  ? 'Edge verified. The conveyor starts only after the machine confirms RUNNING.'
+                  : 'Edge is not verified yet.'}
               </Text>
             </View>
 
@@ -463,10 +582,12 @@ export default function DashboardScreen() {
               <TouchableOpacity
                 style={[styles.startBtn, { backgroundColor: theme.success }]}
                 onPress={handleStartSession}
-                disabled={isLoading}
+                disabled={controlsLocked}
               >
                 <Ionicons name="play" size={16} color="#fff" />
-                <Text style={styles.startBtnText}>Start Sorting</Text>
+                <Text style={styles.startBtnText}>
+                  {commandPending === 'start' ? 'Starting...' : 'Start Sorting'}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>

@@ -18,6 +18,7 @@
 #include <Preferences.h>
 #include <HTTPClient.h>
 #include <ESPmDNS.h>
+#include <WiFiUdp.h>
 #include <esp_timer.h>
 #include <stdlib.h>
 
@@ -40,11 +41,15 @@ const unsigned long DEBOUNCE_MS = 50;
 const int SERVER_PORT = 5000;
 const char MACHINE_ID[] = "CS-0001";
 const unsigned long MDNS_QUERY_MS = 300;
-const unsigned long HEALTH_TIMEOUT_MS = 400;
+const unsigned long HEALTH_TIMEOUT_MS = 1000;
 const unsigned long TRIGGER_TIMEOUT_MS = 1500;
 const unsigned long RECOVERY_INTERVAL_MS = 5000;
-const unsigned long COMMAND_POLL_MS = 250;
-const unsigned long COMMAND_HTTP_TIMEOUT_MS = 800;
+const unsigned long COMMAND_POLL_MS = 1000;
+const unsigned long COMMAND_HTTP_TIMEOUT_MS = 2000;
+const unsigned long WIFI_CONNECT_MS = 12000;
+const unsigned long WIFI_RETRY_MS = 5000;
+const uint16_t DISCOVERY_UDP_PORT = 5055;
+const unsigned long DISCOVERY_UDP_MS = 500;
 
 const int MAX_IN_FLIGHT = 8;
 const int REQUEST_QUEUE_DEPTH = 8;
@@ -143,7 +148,7 @@ struct IrLatch {
     unsigned long edgeMs;
 };
 
-enum CommandKind : uint8_t { CMD_APPLY = 1, CMD_FAILSAFE = 2 };
+enum CommandKind : uint8_t { CMD_APPLY = 1, CMD_FAILSAFE = 2, CMD_POLL_STOP = 3 };
 enum MotionCommand : uint8_t { MOTION_NONE = 0, MOTION_START = 1, MOTION_PAUSE = 2, MOTION_STOP = 3 };
 enum CommandAck : uint8_t { ACK_NONE = 0, ACK_ACKNOWLEDGED = 1, ACK_REJECTED = 2 };
 enum MachineState : uint8_t { MACHINE_STOPPED = 0, MACHINE_RUNNING = 1, MACHINE_PAUSED = 2 };
@@ -162,6 +167,7 @@ struct CommandResult {
     CommandAck ack;
     MachineState result_state;
     bool applied_start;
+    uint8_t rejectReason;
 };
 
 Preferences prefs;
@@ -179,7 +185,12 @@ QueueHandle_t commandResultQueue = nullptr;
 char server_ip[24] = "192.168.1.70";
 char active_edge_ip[24] = "";
 volatile bool edgeVerified = false;
-bool recoveryNeeded = false;
+volatile bool recoveryNeeded = false;
+volatile bool wifiPortalActive = false;
+bool portalSawDisconnect = false;
+unsigned long lastWifiRetryMs = 0;
+volatile bool commandChannelReady = false;
+volatile bool readyAnnounced = false;
 unsigned long lastRecoveryAttempt = 0;
 bool calibrationMode = false;
 bool conveyorRunning = false;
@@ -213,6 +224,10 @@ GateRequestStatus requestGateActuation(uint8_t gateNumber);
 void pollMachineCommand();
 void drainCommandRequests();
 void serviceNetworkFailSafe();
+void openWifiPortal();
+void serviceWifiPortal();
+void beginNetworkConfig();
+void announceReady();
 
 void initIrLatch(IrLatch& ir, int pin) {
     ir.isLow = digitalRead(pin) == LOW;
@@ -309,8 +324,51 @@ bool acceptCandidate(const char* ip) {
     return true;
 }
 
+bool udpDiscover(char* ipOut, size_t ipLen) {
+    IPAddress ip = WiFi.localIP();
+    IPAddress mask = WiFi.subnetMask();
+    IPAddress broadcast(
+        (uint8_t)(ip[0] | (uint8_t)~mask[0]),
+        (uint8_t)(ip[1] | (uint8_t)~mask[1]),
+        (uint8_t)(ip[2] | (uint8_t)~mask[2]),
+        (uint8_t)(ip[3] | (uint8_t)~mask[3])
+    );
+    WiFiUDP udp;
+    if (!udp.begin(DISCOVERY_UDP_PORT)) return false;
+    if (!udp.beginPacket(broadcast, DISCOVERY_UDP_PORT)) {
+        udp.stop();
+        return false;
+    }
+    udp.write((const uint8_t*)"CACAO_DISCOVER", 14);
+    if (!udp.endPacket()) {
+        udp.stop();
+        return false;
+    }
+    unsigned long started = millis();
+    bool found = false;
+    while (millis() - started < DISCOVERY_UDP_MS) {
+        int packet = udp.parsePacket();
+        if (packet > 0) {
+            IPAddress from = udp.remoteIP();
+            from.toString().toCharArray(ipOut, ipLen);
+            found = ipOut[0] != '\0';
+            break;
+        }
+        delay(20);
+    }
+    udp.stop();
+    return found;
+}
+
 bool discoverAndVerify() {
-    if (WiFi.status() != WL_CONNECTED) return false;
+    if (WiFi.status() != WL_CONNECTED || wifiPortalActive) return false;
+
+    Serial.printf("[EDGE] Checking NVS candidate %s\n", server_ip);
+    if (acceptCandidate(server_ip)) {
+        Serial.printf("[EDGE] Verified NVS edge at %s\n", active_edge_ip);
+        return true;
+    }
+
     String label = edgeHostLabel();
     IPAddress resolved = MDNS.queryHost(label.c_str(), MDNS_QUERY_MS);
     if ((uint32_t)resolved != 0) {
@@ -326,10 +384,17 @@ bool discoverAndVerify() {
         Serial.println("[EDGE] mDNS resolution failed");
     }
 
-    Serial.printf("[EDGE] Checking NVS candidate %s\n", server_ip);
-    if (acceptCandidate(server_ip)) {
-        Serial.printf("[EDGE] Verified NVS edge at %s\n", active_edge_ip);
-        return true;
+    char udpIp[24];
+    udpIp[0] = '\0';
+    if (udpDiscover(udpIp, sizeof(udpIp))) {
+        Serial.printf("[EDGE] UDP candidate %s\n", udpIp);
+        if (acceptCandidate(udpIp)) {
+            Serial.printf("[EDGE] Verified UDP edge at %s\n", active_edge_ip);
+            return true;
+        }
+        Serial.println("[EDGE] UDP candidate failed /health");
+    } else {
+        Serial.println("[EDGE] UDP discovery failed");
     }
 
     invalidateEdge();
@@ -429,6 +494,7 @@ void onEntryDetected() {
     Serial.printf("[BEAN %u] DETECTED\n", id);
     beans[slot].lifecycle = LIFE_WAIT_CAMERA;
     Serial.printf("[BEAN %u] WAIT_CAMERA\n", id);
+    dispatchOldestCameraBean();
 }
 
 void dispatchOldestCameraBean() {
@@ -764,32 +830,37 @@ void flickGate(int pin, const char* label) {
     Serial.printf("[ACTION] %s back at neutral (0 deg).\n", label);
 }
 
+void openWifiPortal() {
+    if (wifiPortalActive) return;
+    wm.setConfigPortalBlocking(false);
+    wm.setConfigPortalTimeout(0);
+    wm.setEnableConfigPortal(true);
+    wm.startConfigPortal("CacaoScan-AP", "cacaoscan");
+    wifiPortalActive = true;
+    portalSawDisconnect = false;
+    lastWifiRetryMs = millis();
+    Serial.println("[WIFI] CacaoScan-AP recovery portal");
+}
+
 void setupWiFiPortal() {
     prefs.begin("cacaoscan", false);
     String savedIP = prefs.getString("server_ip", "192.168.1.70");
     savedIP.toCharArray(server_ip, sizeof(server_ip));
+    prefs.end();
 
-    WiFiManagerParameter custom_server_ip("server_ip", "Laptop AI Server IP", server_ip, 24);
-    wm.addParameter(&custom_server_ip);
-    wm.setConfigPortalTimeout(60);
-
-    if (digitalRead(PIN_IR_ENTRY) == LOW) {
-        Serial.println("[RESET] Forcing WiFi Portal...");
-        wm.resetSettings();
-        delay(1000);
-    }
-
+    wm.setConnectTimeout(WIFI_CONNECT_MS / 1000);
+    wm.setEnableConfigPortal(false);
+    Serial.println("[WIFI] Trying saved station");
     if (wm.autoConnect("CacaoScan-AP", "cacaoscan")) {
-        Serial.println("[WIFI] Connected successfully!");
+        wifiPortalActive = false;
+        WiFi.setSleep(false);
+        Serial.println("[WIFI] Connected");
         Serial.print("[WIFI] ESP32 IP: ");
         Serial.println(WiFi.localIP());
-        if (strlen(custom_server_ip.getValue()) > 0) {
-            strncpy(server_ip, custom_server_ip.getValue(), sizeof(server_ip) - 1);
-            server_ip[sizeof(server_ip) - 1] = '\0';
-            prefs.putString("server_ip", String(server_ip));
-        }
+        return;
     }
-    prefs.end();
+    Serial.println("[WIFI] Saved station unavailable");
+    openWifiPortal();
 }
 
 void setup() {
@@ -1015,10 +1086,15 @@ bool postCommandAck(const CommandResult& result) {
                          "\"status\":\"acknowledged\",\"result_state\":\"%s\"}",
                          MACHINE_ID, (unsigned long long)result.stream_id, result.command_id,
                          machineStateName(result.result_state));
-    } else if (result.ack == ACK_REJECTED) {
+    } else if (result.ack == ACK_REJECTED && result.rejectReason == 1) {
         wrote = snprintf(body, sizeof(body),
                          "{\"machine_id\":\"%s\",\"command_stream_id\":\"%llu\",\"command_id\":%u,"
                          "\"status\":\"rejected\",\"reason\":\"calibration_active\"}",
+                         MACHINE_ID, (unsigned long long)result.stream_id, result.command_id);
+    } else if (result.ack == ACK_REJECTED) {
+        wrote = snprintf(body, sizeof(body),
+                         "{\"machine_id\":\"%s\",\"command_stream_id\":\"%llu\",\"command_id\":%u,"
+                         "\"status\":\"rejected\"}",
                          MACHINE_ID, (unsigned long long)result.stream_id, result.command_id);
     }
     if (wrote <= 0 || (size_t)wrote >= sizeof(body)) return false;
@@ -1038,6 +1114,30 @@ void applyCommandOnLoop(const CommandRequest& req) {
     result.stream_id = req.stream_id;
     result.command_id = req.command_id;
     result.command = req.command;
+
+    if (req.kind == CMD_POLL_STOP) {
+        readyAnnounced = false;
+        if (!calibrationMode && machineState == MACHINE_RUNNING) {
+            setConveyor(false);
+            machineState = MACHINE_STOPPED;
+            if (runningStartValid) {
+                markConsumedPair(runningStream, runningId);
+                runningStartValid = false;
+            }
+            Serial.println("[CMD] poll failed while RUNNING — fail-safe STOPPED");
+        }
+        return;
+    }
+
+    if (wifiPortalActive && req.kind == CMD_APPLY && req.command != MOTION_STOP) {
+        result.ack = ACK_REJECTED;
+        result.rejectReason = 0;
+        Serial.println("[CMD] rejected network configuration");
+        loopSavedResult = result;
+        loopHasResult = true;
+        xQueueSend(commandResultQueue, &result, 0);
+        return;
+    }
 
     if (req.kind == CMD_FAILSAFE) {
         if (!calibrationMode && machineState == MACHINE_RUNNING &&
@@ -1072,6 +1172,7 @@ void applyCommandOnLoop(const CommandRequest& req) {
         Serial.println("[CMD] STOP applied STOPPED");
     } else if (calibrationMode) {
         result.ack = ACK_REJECTED;
+        result.rejectReason = 1;
         result.result_state = MACHINE_STOPPED;
         Serial.println("[CMD] rejected calibration_active");
     } else if (req.command == MOTION_START) {
@@ -1118,6 +1219,62 @@ void serviceNetworkFailSafe() {
     Serial.println("[CMD] Network lost - conveyor STOPPED");
 }
 
+static HTTPClient nextHttp;
+static char nextHost[24] = "";
+static uint8_t consecutivePollFailures = 0;
+static bool channelUnavailableLogged = false;
+static bool runningFailSafePosted = false;
+
+void resetNextHttp() {
+    nextHttp.setReuse(false);
+    nextHttp.end();
+    nextHttp.setReuse(true);
+    nextHost[0] = '\0';
+}
+
+void notePollSuccess() {
+    consecutivePollFailures = 0;
+    channelUnavailableLogged = false;
+    runningFailSafePosted = false;
+    if (!recoveryNeeded) commandChannelReady = true;
+}
+
+void notePollFailure() {
+    if (consecutivePollFailures < 255) consecutivePollFailures++;
+    resetNextHttp();
+    bool beltRunning = machineState == MACHINE_RUNNING && !calibrationMode;
+    if (beltRunning) {
+        commandChannelReady = false;
+        readyAnnounced = false;
+        recoveryNeeded = true;
+        if (!runningFailSafePosted && commandRequestQueue != nullptr) {
+            CommandRequest event = {};
+            event.kind = CMD_POLL_STOP;
+            if (xQueueSend(commandRequestQueue, &event, 0) == pdTRUE) runningFailSafePosted = true;
+        }
+        return;
+    }
+    if (machineState == MACHINE_STOPPED && consecutivePollFailures >= 3 && !channelUnavailableLogged) {
+        commandChannelReady = false;
+        readyAnnounced = false;
+        recoveryNeeded = true;
+        channelUnavailableLogged = true;
+        Serial.println("[CMD] command channel unavailable");
+    }
+}
+
+bool nextPollAllowed() {
+    bool blocked = !edgeVerified || active_edge_ip[0] == '\0' || WiFi.status() != WL_CONNECTED || wifiPortalActive;
+    bool hostChanged = strcmp(nextHost, active_edge_ip) != 0;
+    if (blocked || hostChanged || recoveryNeeded) resetNextHttp();
+    return !blocked;
+}
+
+void rememberNextHost() {
+    strncpy(nextHost, active_edge_ip, sizeof(nextHost) - 1);
+    nextHost[sizeof(nextHost) - 1] = '\0';
+}
+
 void pollMachineCommand() {
     static bool commandInFlight = false;
     static CommandRequest inFlight = {};
@@ -1158,37 +1315,59 @@ void pollMachineCommand() {
                              "\"status\":\"acknowledged\",\"result_state\":\"%s\"}",
                              MACHINE_ID, (unsigned long long)pending.stream_id, pending.command_id,
                              machineStateName(pending.result_state));
-                } else {
+                } else if (pending.rejectReason == 1) {
                     snprintf(savedAckBody, sizeof(savedAckBody),
                              "{\"machine_id\":\"%s\",\"command_stream_id\":\"%llu\",\"command_id\":%u,"
                              "\"status\":\"rejected\",\"reason\":\"calibration_active\"}",
+                             MACHINE_ID, (unsigned long long)pending.stream_id, pending.command_id);
+                } else {
+                    snprintf(savedAckBody, sizeof(savedAckBody),
+                             "{\"machine_id\":\"%s\",\"command_stream_id\":\"%llu\",\"command_id\":%u,"
+                             "\"status\":\"rejected\"}",
                              MACHINE_ID, (unsigned long long)pending.stream_id, pending.command_id);
                 }
             }
         }
     }
 
-    if (!edgeVerified || active_edge_ip[0] == '\0' || WiFi.status() != WL_CONNECTED) return;
-    char url[128];
-    snprintf(url, sizeof(url), "http://%s:%d/machine/command/next?machine_id=%s",
-             active_edge_ip, SERVER_PORT, MACHINE_ID);
-    HTTPClient http;
-    http.begin(url);
-    http.setConnectTimeout(COMMAND_HTTP_TIMEOUT_MS);
-    http.setTimeout(COMMAND_HTTP_TIMEOUT_MS);
-    int httpCode = http.GET();
+    if (!nextPollAllowed()) return;
+    nextHttp.setReuse(true);
+    nextHttp.setConnectTimeout(COMMAND_HTTP_TIMEOUT_MS);
+    nextHttp.setTimeout(COMMAND_HTTP_TIMEOUT_MS);
+    String nextUri = String("/machine/command/next?machine_id=") + MACHINE_ID;
+    if (!nextHttp.begin(String(active_edge_ip), SERVER_PORT, nextUri)) {
+        notePollFailure();
+        return;
+    }
+    int httpCode = nextHttp.GET();
     char body[256];
-    if (httpCode == HTTP_CODE_OK) readHttpBody(http, body, sizeof(body));
-    http.end();
-    if (httpCode == HTTP_CODE_NO_CONTENT || httpCode == 204) return;
-    if (httpCode != HTTP_CODE_OK) return;
+    body[0] = '\0';
+    if (httpCode == HTTP_CODE_OK) readHttpBody(nextHttp, body, sizeof(body));
+    if (httpCode == HTTP_CODE_NO_CONTENT || httpCode == 204) {
+        nextHttp.setReuse(true);
+        nextHttp.end();
+        rememberNextHost();
+        notePollSuccess();
+        return;
+    }
+    if (httpCode != HTTP_CODE_OK) {
+        notePollFailure();
+        return;
+    }
 
     uint64_t streamId = 0;
     uint64_t commandIdWide = 0;
     MotionCommand command = MOTION_NONE;
-    if (!parseU64Field(body, "command_stream_id", &streamId)) return;
-    if (!parseU64Field(body, "command_id", &commandIdWide) || commandIdWide == 0 || commandIdWide > 0xFFFFFFFFu) return;
-    if (!parseCommandName(body, &command)) return;
+    if (!parseU64Field(body, "command_stream_id", &streamId) ||
+        !parseU64Field(body, "command_id", &commandIdWide) || commandIdWide == 0 || commandIdWide > 0xFFFFFFFFu ||
+        !parseCommandName(body, &command)) {
+        notePollFailure();
+        return;
+    }
+    nextHttp.setReuse(true);
+    nextHttp.end();
+    rememberNextHost();
+    notePollSuccess();
     uint32_t commandId = (uint32_t)commandIdWide;
 
     if (pairIsConsumed(streamId, commandId)) return;
@@ -1218,7 +1397,87 @@ void pollMachineCommand() {
     inFlight = req;
 }
 
+void finishWifiPortal() {
+    wm.stopConfigPortal();
+    wifiPortalActive = false;
+    WiFi.setSleep(false);
+    if (!calibrationMode) {
+        setConveyor(false);
+        machineState = MACHINE_STOPPED;
+    }
+    if (runningStartValid) {
+        markConsumedPair(runningStream, runningId);
+        runningStartValid = false;
+    }
+    invalidateEdge();
+    commandChannelReady = false;
+    readyAnnounced = false;
+    recoveryNeeded = true;
+    Serial.println("[WIFI] Connected. Edge discovery restarted.");
+    Serial.print("[WIFI] ESP32 IP: ");
+    Serial.println(WiFi.localIP());
+}
+
+void serviceWifiPortal() {
+    if (!wifiPortalActive) return;
+    bool formConnected = wm.process();
+    if (formConnected) {
+        finishWifiPortal();
+        return;
+    }
+    if (WiFi.status() != WL_CONNECTED) portalSawDisconnect = true;
+    if (WiFi.status() == WL_CONNECTED) {
+        if (portalSawDisconnect) finishWifiPortal();
+        return;
+    }
+    if (WiFi.status() == WL_IDLE_STATUS) {
+        lastWifiRetryMs = millis();
+        return;
+    }
+    if (millis() - lastWifiRetryMs < WIFI_RETRY_MS) return;
+    lastWifiRetryMs = millis();
+    Serial.println("[WIFI] Retrying saved station");
+    WiFi.begin();
+}
+
+void beginNetworkConfig() {
+    if (wifiPortalActive) return;
+    setConveyor(false);
+    machineState = MACHINE_STOPPED;
+    if (calRunActive) cancelCalRun("network setup");
+    calibrationMode = false;
+    if (runningStartValid) {
+        markConsumedPair(runningStream, runningId);
+        runningStartValid = false;
+    }
+    invalidateEdge();
+    commandChannelReady = false;
+    readyAnnounced = false;
+    recoveryNeeded = true;
+    openWifiPortal();
+}
+
+void announceReady() {
+    if (wifiPortalActive || WiFi.status() != WL_CONNECTED || !edgeVerified) {
+        commandChannelReady = false;
+        readyAnnounced = false;
+    }
+    if (readyAnnounced) return;
+    if (WiFi.status() != WL_CONNECTED) return;
+    if (!edgeVerified || !commandChannelReady) return;
+    if (machineState != MACHINE_STOPPED || conveyorRunning) return;
+    if (calibrationMode || wifiPortalActive) return;
+    readyAnnounced = true;
+    Serial.println("[WIFI] Connected");
+    Serial.printf("[EDGE] Verified %s\n", active_edge_ip);
+    Serial.println("[CMD] command channel ready");
+    Serial.println("[CMD] conveyor STOPPED");
+    Serial.println("CACAOSCAN READY");
+}
+
 void loop() {
+    serviceWifiPortal();
+    announceReady();
     drainResults();
     drainCommandRequests();
     serviceNetworkFailSafe();
@@ -1237,7 +1496,8 @@ void loop() {
 
     if (Serial.available() > 0) {
         char c = Serial.read();
-        if (calibrationMode) {
+        if (c == 'w') beginNetworkConfig();
+        else if (calibrationMode) {
             if (c == 'b') enterBeltCal();
             else if (c == 's') startCalConveyor();
             else if (c == 't') stopCalConveyor();
