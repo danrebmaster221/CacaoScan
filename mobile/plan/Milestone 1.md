@@ -65,6 +65,7 @@ Only plan targeted verification for:
 2. farmer cannot update role to admin;
 3. existing admin still resolves as admin;
 4. forged `user_metadata.role = "admin"` does not grant admin access.
+sdfsdf
 
 OUTPUT:
 Create a concise Markdown plan using exactly this structure:
